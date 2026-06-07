@@ -1,6 +1,6 @@
 (() => {
   const PANEL_ID = "mot-v1-panel";
-  const DEBUG_MODE = false;
+  const DEBUG_MODE_DEFAULT = false;
 
   const LOG_FETCH_LIMIT = 200;
   const MAX_LOG_PAGES = 5;
@@ -12,7 +12,8 @@
 
   const STORAGE_KEYS = {
     minimized: "motMinimized",
-    position: "motPosition"
+    position: "motPosition",
+    debugEnabled: "motDebugEnabled"
   };
 
   const ADMIN_HOST_PATTERNS = [
@@ -102,6 +103,31 @@
       localStorage.setItem(key, value);
     } catch {
       // Storage failure should not break the extension UI.
+    }
+  }
+
+
+  function isDebugEnabled() {
+    return getStoredValue(STORAGE_KEYS.debugEnabled, String(DEBUG_MODE_DEFAULT)) === "true";
+  }
+
+  function setDebugEnabled(enabled) {
+    setStoredValue(STORAGE_KEYS.debugEnabled, String(Boolean(enabled)));
+  }
+
+  function applyDebugState(panel) {
+    const enabled = isDebugEnabled();
+
+    panel.classList.toggle("mot-debug-enabled", enabled);
+
+    const checkbox = panel.querySelector("[data-mot-debug-toggle]");
+    if (checkbox) {
+      checkbox.checked = enabled;
+    }
+
+    const debugState = panel.querySelector("[data-mot-debug-state]");
+    if (debugState) {
+      debugState.textContent = enabled ? "Enabled" : "Disabled";
     }
   }
 
@@ -805,7 +831,7 @@ ${decodeURIComponent(deferredUrl)}`
 
     container.innerHTML = `
       <div class="mot-confirmation-box">
-        <div>Bounce removal request completed.</div>
+        <div>Selected emails removed from bounce list.</div>
         <button class="mot-small-button" type="button" data-mot-action="download-removal-confirmation">
           Download confirmation CSV
         </button>
@@ -976,6 +1002,19 @@ ${decodeURIComponent(deferredUrl)}`
     });
   }
 
+
+  function toggleSettingsPanel(panel) {
+    const settings = panel.querySelector("[data-mot-settings]");
+    if (!settings) return;
+
+    const expanded = settings.classList.toggle("mot-settings-open");
+
+    const button = panel.querySelector("[data-mot-action='settings']");
+    if (button) {
+      button.setAttribute("aria-expanded", String(expanded));
+    }
+  }
+
   function applyPanelState(panel) {
     const minimized = getStoredValue(STORAGE_KEYS.minimized, "false") === "true";
     const position = getStoredValue(STORAGE_KEYS.position, "bottom");
@@ -1011,15 +1050,28 @@ ${decodeURIComponent(deferredUrl)}`
     panel.innerHTML = `
       <div class="mot-header">
         <button class="mot-brand-button" type="button" data-mot-action="toggle" title="Toggle MOT panel">
-          <div class="mot-title">MOT v1</div>
-          <div class="mot-subtitle">Operations Toolkit</div>
+          <span class="mot-logo-badge">MOT</span>
+          <span class="mot-brand-text">
+            <span class="mot-title">MOT v1</span>
+            <span class="mot-subtitle">Operations Toolkit</span>
+          </span>
         </button>
 
         <div class="mot-controls">
+          <button class="mot-control mot-settings-button" type="button" data-mot-action="settings" title="MOT settings" aria-label="MOT settings" aria-expanded="false">⚙</button>
           <button class="mot-control mot-position" type="button" data-mot-action="position" title="Move MOT to top">Top</button>
           <button class="mot-control" type="button" data-mot-action="minimize" title="Minimize MOT">−</button>
           <button class="mot-control" type="button" data-mot-action="close" title="Close MOT" aria-label="Close MOT panel">×</button>
         </div>
+      </div>
+
+      <div class="mot-settings" data-mot-settings>
+        <div class="mot-settings-title">Settings</div>
+        <label class="mot-toggle-row">
+          <input type="checkbox" data-mot-debug-toggle />
+          <span>Enable Debug Mode</span>
+          <strong data-mot-debug-state>Disabled</strong>
+        </label>
       </div>
 
       <div class="mot-body">
@@ -1139,18 +1191,15 @@ ${decodeURIComponent(deferredUrl)}`
         </div>
 
         <div class="mot-footer">
-          Phase 3 v0.3.8: Stable
+          Phase 3 v0.3.9rc1
         </div>
       </div>
     `;
 
     document.body.appendChild(panel);
 
-    if (DEBUG_MODE) {
-      panel.classList.add("mot-debug-enabled");
-    }
-
     applyPanelState(panel);
+    applyDebugState(panel);
     activateInfoTab(panel, "connection");
 
     panel.addEventListener("click", (event) => {
@@ -1176,6 +1225,11 @@ ${decodeURIComponent(deferredUrl)}`
         const nextPosition = currentPosition === "top" ? "bottom" : "top";
         setStoredValue(STORAGE_KEYS.position, nextPosition);
         applyPanelState(panel);
+        return;
+      }
+
+      if (action === "settings") {
+        toggleSettingsPanel(panel);
         return;
       }
 
@@ -1230,6 +1284,15 @@ ${decodeURIComponent(deferredUrl)}`
 
         downloadTextFile(lastRemovalConfirmationFilename, lastRemovalConfirmationCsv);
       }
+    });
+
+
+    panel.addEventListener("change", (event) => {
+      const debugToggle = event.target.closest("[data-mot-debug-toggle]");
+      if (!debugToggle) return;
+
+      setDebugEnabled(debugToggle.checked);
+      applyDebugState(panel);
     });
 
     loadOrganizationInfo();

@@ -665,3 +665,50 @@ A JavaScript syntax check was performed before packaging.
 - Hidden detailed removal error output from the normal UI.
 - Detailed per-email removal responses remain available in the confirmation CSV.
 - The bottom error/debug output is now hidden behind future Debug Mode behavior.
+
+
+---
+
+## v0.3.9 Notes
+
+### Debug Mode
+
+Added a gear icon in the MOT header that opens a small Settings panel.
+
+Settings currently include:
+
+```text
+Enable Debug Mode
+```
+
+When Debug Mode is enabled, MOT shows debug-only sections such as:
+
+- Raw organization metadata
+- Generated System Log queries
+- Hidden debug/error detail areas
+
+Debug state is persisted in local storage.
+
+### MOT Badge
+
+Added a small white/gray-on-black square `MOT` badge in the header to give the extension a cleaner product identity while keeping the enterprise visual style.
+
+### Footer
+
+Footer updated to:
+
+```text
+Phase 3 v0.3.9: Stable
+```
+
+
+---
+
+## v0.3.9rc1 Notes
+
+### Layout Fixes
+
+- Fixed panel scrolling so the MOT header remains visible while long result lists scroll inside the panel body.
+- Added a max-height based on viewport height for 1440x900 and smaller screens.
+- Fixed minimized layout so `MOT v1` no longer sits behind the settings button.
+- In minimized mode, the Top and Minimize controls are hidden to preserve space; Settings and Close remain available.

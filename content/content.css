@@ -3,6 +3,9 @@
   right: 24px;
   z-index: 2147483647;
   width: 360px;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
   background: #111111;
   color: #ffffff;
   border: 1px solid #2d2d2d;
@@ -34,6 +37,8 @@
   padding: 12px 12px 12px 16px;
   border-bottom: 1px solid #2d2d2d;
   background: #151515;
+  flex: 0 0 auto;
+  z-index: 5;
 }
 
 .mot-brand-button {
@@ -90,8 +95,9 @@
 
 .mot-body {
   display: block;
-  max-height: min(720px, calc(100vh - 96px));
-  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 #mot-v1-panel.mot-minimized {
@@ -105,7 +111,15 @@
 }
 
 #mot-v1-panel.mot-minimized .mot-header {
-  border-bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 12px 12px 16px;
+  border-bottom: 1px solid #2d2d2d;
+  background: #151515;
+  flex: 0 0 auto;
+  z-index: 5;
 }
 
 #mot-v1-panel.mot-minimized .mot-title {
@@ -426,4 +440,150 @@
 
 .mot-info-panel.mot-info-panel-active {
   display: block;
+}
+
+
+.mot-brand-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mot-logo-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 28px;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  background: #0f0f0f;
+  color: #f2f2f2;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  flex: 0 0 auto;
+}
+
+.mot-brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mot-settings-button {
+  font-size: 14px;
+}
+
+.mot-settings {
+  display: none;
+  padding: 12px 16px;
+  border-bottom: 1px solid #2d2d2d;
+  background: #101010;
+  flex: 0 0 auto;
+}
+
+.mot-settings.mot-settings-open {
+  display: block;
+}
+
+.mot-settings-title {
+  font-size: 11px;
+  color: #9a9a9a;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+
+.mot-toggle-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  color: #e5e5e5;
+  font-size: 12px;
+}
+
+.mot-toggle-row input {
+  margin: 0;
+}
+
+.mot-toggle-row strong {
+  color: #a8a8a8;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+
+/* v0.3.9rc1 layout fixes */
+.mot-brand-button {
+  min-width: 0;
+}
+
+.mot-brand-text {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mot-title,
+.mot-subtitle {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mot-controls {
+  flex-shrink: 0;
+}
+
+#mot-v1-panel.mot-minimized {
+  width: 220px;
+  max-height: none;
+}
+
+#mot-v1-panel.mot-minimized .mot-logo-badge {
+  width: 32px;
+}
+
+#mot-v1-panel.mot-minimized .mot-brand-button {
+  flex: 1 1 auto;
+}
+
+#mot-v1-panel.mot-minimized .mot-settings-button,
+#mot-v1-panel.mot-minimized [data-mot-action="close"] {
+  display: inline-flex;
+}
+
+#mot-v1-panel.mot-minimized .mot-position,
+#mot-v1-panel.mot-minimized [data-mot-action="minimize"] {
+  display: none;
+}
+
+#mot-v1-panel.mot-minimized .mot-title {
+  display: block;
+  max-width: 76px;
+}
+
+#mot-v1-panel.mot-minimized .mot-controls {
+  gap: 4px;
+}
+
+#mot-v1-panel.mot-minimized .mot-control {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+}
+
+@media (max-height: 720px) {
+  #mot-v1-panel {
+    max-height: calc(100vh - 24px);
+  }
+
+  #mot-v1-panel.mot-bottom {
+    bottom: 12px;
+  }
+
+  #mot-v1-panel.mot-top {
+    top: 12px;
+  }
 }
