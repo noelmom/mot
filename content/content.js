@@ -768,62 +768,21 @@ ${decodeURIComponent(deferredUrl)}`
     return selected;
   }
 
-  async function removeSelectedBounceEmails() {
-    const selectedEmails = getSelectedBounceEmails();
 
-    if (selectedEmails.length === 0) {
-      setStatus("[data-mot-bounce-status]", "warn", "Select at least one email first");
-      return;
-    }
+  function csvEscape(value) {
+    return `"${String(value ?? "").replaceAll('"', '""')}"`;
+  }
 
-    const confirmed = window.confirm(
-      `Remove ${selectedEmails.length} email address${selectedEmails.length === 1 ? "" : "es"} from the bounce list?\n\n${selectedEmails.join("\n")}`
-    );
+  function downloadTextFile(filename, fileContent, mimeType = "text/csv") {
+    const blob = new Blob([fileContent], { type: mimeType });
+    const url = URL.createObjectURL(blob);
 
-    if (!confirmed) {
-      return;
-    }
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
 
-    try {
-      clearText("[data-mot-bounce-error]");
-      setStatus("[data-mot-bounce-status]", "loading", "Removing selected emails");
-
-      const pageResponse = await motPageContextFetchJson("/api/v1/org/email/bounces/remove-list", {
-        method: "POST",
-        body: JSON.stringify({
-          emailAddresses: selectedEmails
-        })
-      });
-
-      const responseData = pageResponse?.data || {};
-      const errors = Array.isArray(responseData?.errors) ? responseData.errors : [];
-
-      const confirmationFilename = `mot-bounce-removal-confirmation-${new Date().toISOString().replaceAll(":", "-").slice(0, 19)}.csv`;
-      const confirmationCsv = createBounceRemovalConfirmationCsv({
-        emails: selectedEmails,
-        headers: pageResponse?.headers || {},
-        status: pageResponse?.status,
-        statusText: pageResponse?.statusText,
-        response: responseData
-      });
-
-      showRemovalConfirmationDownload(confirmationCsv, confirmationFilename);
-
-      if (errors.length > 0) {
-        setStatus("[data-mot-bounce-status]", "warn", `Removal completed with ${errors.length} error${errors.length === 1 ? "" : "s"}`);
-        setText("[data-mot-bounce-error]", safeJsonStringify(errors));
-      } else {
-        setStatus("[data-mot-bounce-status]", "ok", "Selected emails removed from bounce list. Download confirmation CSV.");
-      }
-    } catch (error) {
-      if (error.message.includes("403")) {
-        setStatus("[data-mot-bounce-status]", "warn", "Bounce removal denied by admin page session");
-      } else {
-        setStatus("[data-mot-bounce-status]", "error", "Bounce removal failed");
-      }
-
-      setText("[data-mot-bounce-error]", error.message);
-    }
+    URL.revokeObjectURL(url);
   }
 
   function getResponseRequestId(headers = {}) {
@@ -836,28 +795,25 @@ ${decodeURIComponent(deferredUrl)}`
     );
   }
 
-  function csvEscape(value) {
-    return `"${String(value ?? "").replaceAll('"', '""')}"`;
+
+  function showRemovalConfirmationDownload(csv, filename) {
+    lastRemovalConfirmationCsv = csv;
+    lastRemovalConfirmationFilename = filename;
+
+    const container = document.querySelector("[data-mot-removal-confirmation]");
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="mot-confirmation-box">
+        <div>Bounce removal request completed.</div>
+        <button class="mot-small-button" type="button" data-mot-action="download-removal-confirmation">
+          Download confirmation CSV
+        </button>
+      </div>
+    `;
   }
 
-  function createBounceRemovalConfirmationCsv({ emails, headers, status, statusText, response }) {
-    const timestamp = new Date().toISOString();
-    const requestId = getResponseRequestId(headers);
-    const errors = Array.isArray(response?.errors) ? response.errors : [];
-    const responseSummary =
-      status === 200 && errors.length === 0
-        ? "successful"
-        : errors.length > 0
-          ? JSON.stringify(errors)
-          : JSON.stringify(response || {});
-
-    const rows = emails.map((email) => ({
-      timestamp,
-      emailRemoved: email,
-      responseHeaderRequestId: requestId,
-      response: status === 200 && errors.length === 0 ? "200 successful" : `${status} ${statusText}: ${responseSummary}`
-    }));
-
+  function createBounceRemovalConfirmationCsv(rows) {
     const headersRow = [
       "timestamp",
       "email_removed",
@@ -877,36 +833,112 @@ ${decodeURIComponent(deferredUrl)}`
     return [headersRow.join(","), ...csvRows].join("\n");
   }
 
-  function downloadTextFile(filename, content, mimeType = "text/csv") {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
+  function buildRemovalAuditRow({ email, pageResponse, error }) {
+    const timestamp = new Date().toISOString();
 
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
+    if (error) {
+      return {
+        timestamp,
+        emailRemoved: email,
+        responseHeaderRequestId: "",
+        response: error.message || String(error)
+      };
+    }
 
-    URL.revokeObjectURL(url);
+    const responseData = pageResponse?.data || {};
+    const errors = Array.isArray(responseData?.errors) ? responseData.errors : [];
+    const emailError = errors.find((item) => {
+      return String(item?.emailAddress || "").toLowerCase() === String(email).toLowerCase();
+    });
+
+    return {
+      timestamp,
+      emailRemoved: email,
+      responseHeaderRequestId: getResponseRequestId(pageResponse?.headers || {}),
+      response: emailError
+        ? `${pageResponse?.status} ${pageResponse?.statusText}: ${JSON.stringify(emailError)}`
+        : `${pageResponse?.status} successful`
+    };
   }
 
-  function showRemovalConfirmationDownload(csv, filename) {
-    lastRemovalConfirmationCsv = csv;
-    lastRemovalConfirmationFilename = filename;
 
-    const container = document.querySelector("[data-mot-removal-confirmation]");
-    if (!container) return;
+  async function removeSelectedBounceEmails() {
+    const selectedEmails = getSelectedBounceEmails();
 
-    container.innerHTML = `
-      <div class="mot-confirmation-box">
-        <div>Selected emails removed from bounce list.</div>
-        <button class="mot-small-button" type="button" data-mot-action="download-removal-confirmation">
-          Download confirmation CSV
-        </button>
-      </div>
-    `;
+    if (selectedEmails.length === 0) {
+      setStatus("[data-mot-bounce-status]", "warn", "Select at least one email first");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Remove ${selectedEmails.length} email address${selectedEmails.length === 1 ? "" : "es"} from the bounce list?\n\n${selectedEmails.join("\n")}`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const auditRows = [];
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      clearText("[data-mot-bounce-error]");
+      setStatus("[data-mot-bounce-status]", "loading", "Removing selected emails");
+
+      for (const email of selectedEmails) {
+        try {
+          const pageResponse = await motPageContextFetchJson("/api/v1/org/email/bounces/remove-list", {
+            method: "POST",
+            body: JSON.stringify({
+              emailAddresses: [email]
+            })
+          });
+
+          const responseData = pageResponse?.data || {};
+          const errors = Array.isArray(responseData?.errors) ? responseData.errors : [];
+          const emailHasError = errors.some((item) => {
+            return String(item?.emailAddress || "").toLowerCase() === String(email).toLowerCase();
+          });
+
+          if (emailHasError) {
+            errorCount += 1;
+          } else {
+            successCount += 1;
+          }
+
+          auditRows.push(buildRemovalAuditRow({ email, pageResponse }));
+        } catch (error) {
+          errorCount += 1;
+          auditRows.push(buildRemovalAuditRow({ email, error }));
+        }
+      }
+
+      const confirmationFilename = `mot-bounce-removal-confirmation-${new Date().toISOString().replaceAll(":", "-").slice(0, 19)}.csv`;
+      const confirmationCsv = createBounceRemovalConfirmationCsv(auditRows);
+
+      showRemovalConfirmationDownload(confirmationCsv, confirmationFilename);
+
+      if (errorCount > 0) {
+        setStatus(
+          "[data-mot-bounce-status]",
+          "warn",
+          `Removal completed: ${successCount} successful, ${errorCount} error${errorCount === 1 ? "" : "s"}. Download confirmation CSV.`
+        );
+
+        // Detailed per-email removal errors are captured in the confirmation CSV.
+        // They are intentionally not shown in the normal UI. Future debug mode can expose them.
+      } else {
+        setStatus("[data-mot-bounce-status]", "ok", "Selected emails removed from bounce list. Download confirmation CSV.");
+      }
+    } catch (error) {
+      setStatus("[data-mot-bounce-status]", "error", "Bounce removal failed");
+      setText("[data-mot-bounce-error]", error.message);
+    }
   }
 
-  function exportBounceResultsCsv() {
+  function exportBounceResultsCsv
+() {
     if (bounceResults.length === 0) {
       setStatus("[data-mot-bounce-status]", "warn", "No results to export");
       return;
@@ -1103,11 +1135,11 @@ ${decodeURIComponent(deferredUrl)}`
             <pre data-mot-bounce-query>Not generated yet</pre>
           </details>
 
-          <pre class="mot-error" data-mot-bounce-error></pre>
+          <pre class="mot-error mot-debug-only" data-mot-bounce-error></pre>
         </div>
 
         <div class="mot-footer">
-          Phase 3.1: Bounce Manager fixes and pagination.
+          Phase 3 v0.3.8: Stable
         </div>
       </div>
     `;
