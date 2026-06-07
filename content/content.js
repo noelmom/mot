@@ -289,9 +289,7 @@
     const script = document.createElement("script");
     script.id = "mot-v1-page-bridge";
     script.src = chrome.runtime.getURL("page/page-bridge.js");
-    script.onload = () => {
-      script.remove();
-    };
+    script.onload = () => script.remove();
 
     (document.head || document.documentElement).appendChild(script);
   }
@@ -304,30 +302,12 @@
 
       const timeout = window.setTimeout(() => {
         window.removeEventListener("MOT_V1_PAGE_FETCH_RESPONSE", onResponse);
-        window.removeEventListener("MOT_V1_PAGE_BRIDGE_READY", onReady);
         reject(new Error("Page context fetch timed out. Bridge may not have loaded."));
       }, 30000);
 
       function cleanup() {
         window.clearTimeout(timeout);
         window.removeEventListener("MOT_V1_PAGE_FETCH_RESPONSE", onResponse);
-        window.removeEventListener("MOT_V1_PAGE_BRIDGE_READY", onReady);
-      }
-
-      function dispatchRequest() {
-        window.dispatchEvent(new CustomEvent("MOT_V1_PAGE_FETCH_REQUEST", {
-          detail: {
-            requestId,
-            url,
-            method: options.method || "GET",
-            headers: options.headers || {},
-            body: options.body
-          }
-        }));
-      }
-
-      function onReady() {
-        dispatchRequest();
       }
 
       function onResponse(event) {
@@ -356,11 +336,18 @@
       }
 
       window.addEventListener("MOT_V1_PAGE_FETCH_RESPONSE", onResponse);
-      window.addEventListener("MOT_V1_PAGE_BRIDGE_READY", onReady);
 
-      // Give the external bridge file a moment to load, then dispatch.
-      // If it is already loaded, the listener will already be registered.
-      window.setTimeout(dispatchRequest, 250);
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("MOT_V1_PAGE_FETCH_REQUEST", {
+          detail: {
+            requestId,
+            url,
+            method: options.method || "GET",
+            headers: options.headers || {},
+            body: options.body
+          }
+        }));
+      }, 250);
     });
   }
 
@@ -629,6 +616,9 @@
     const tbody = document.querySelector("[data-mot-bounce-tbody]");
     const countEl = document.querySelector("[data-mot-bounce-count]");
     const pageEl = document.querySelector("[data-mot-bounce-page]");
+    const toolbarEl = document.querySelector("[data-mot-bounce-toolbar]");
+    const selectPageButton = document.querySelector("[data-mot-action='select-all-bounces']");
+    const paginationEl = document.querySelector("[data-mot-pagination]");
     const prevButton = document.querySelector("[data-mot-action='prev-bounce-page']");
     const nextButton = document.querySelector("[data-mot-action='next-bounce-page']");
 
@@ -646,8 +636,23 @@
     const displayStart = totalResults === 0 ? 0 : startIndex + 1;
     const displayEnd = Math.min(startIndex + UI_PAGE_SIZE, totalResults);
 
-    countEl.textContent = `${totalResults} result${totalResults === 1 ? "" : "s"} · ${processedLogEvents} events processed`;
-    pageEl.textContent = `Showing ${displayStart}-${displayEnd} · Page ${bounceCurrentPage} of ${totalPages}`;
+    countEl.textContent = `${totalResults} bounced/deferred email${totalResults === 1 ? "" : "s"} found`;
+
+    if (toolbarEl) {
+      toolbarEl.style.display = totalResults > 0 ? "flex" : "none";
+    }
+
+    if (selectPageButton) {
+      selectPageButton.style.display = totalResults > 0 ? "" : "none";
+    }
+
+    if (paginationEl) {
+      paginationEl.style.display = totalResults > 0 && totalPages > 1 ? "flex" : "none";
+    }
+
+    if (pageEl) {
+      pageEl.textContent = `Showing ${displayStart}-${displayEnd} · Page ${bounceCurrentPage} of ${totalPages}`;
+    }
 
     if (prevButton) {
       prevButton.disabled = bounceCurrentPage <= 1;
@@ -706,8 +711,7 @@
 
       renderBounceResults();
 
-      const moreText = result.hasMore ? " More results may exist." : "";
-      setStatus("[data-mot-bounce-status]", "ok", `Bounce search complete.${moreText}`);
+      setStatus("[data-mot-bounce-status]", "ok", "Bounce search complete");
     } catch (error) {
       bounceResults = [];
       processedLogEvents = 0;
@@ -773,7 +777,6 @@
       const confirmationFilename = `mot-bounce-removal-confirmation-${new Date().toISOString().replaceAll(":", "-").slice(0, 19)}.csv`;
       const confirmationCsv = createBounceRemovalConfirmationCsv({
         emails: selectedEmails,
-        actor: pageResponse?.actor,
         headers: pageResponse?.headers || {},
         status: pageResponse?.status,
         statusText: pageResponse?.statusText,
@@ -813,7 +816,7 @@
     return `"${String(value ?? "").replaceAll('"', '""')}"`;
   }
 
-  function createBounceRemovalConfirmationCsv({ emails, actor, headers, status, statusText, response }) {
+  function createBounceRemovalConfirmationCsv({ emails, headers, status, statusText, response }) {
     const timestamp = new Date().toISOString();
     const requestId = getResponseRequestId(headers);
     const errors = Array.isArray(response?.errors) ? response.errors : [];
@@ -825,27 +828,24 @@
           : JSON.stringify(response || {});
 
     const rows = emails.map((email) => ({
-      emailRemoved: email,
-      actor: actor || "Current admin session",
-      responseHeaderRequestId: requestId,
       timestamp,
+      emailRemoved: email,
+      responseHeaderRequestId: requestId,
       response: status === 200 && errors.length === 0 ? "200 successful" : `${status} ${statusText}: ${responseSummary}`
     }));
 
     const headersRow = [
-      "email_removed",
-      "actor_requested_removal",
-      "response_header_request_id",
       "timestamp",
+      "email_removed",
+      "response_header_request_id",
       "response"
     ];
 
     const csvRows = rows.map((row) =>
       [
-        row.emailRemoved,
-        row.actor,
-        row.responseHeaderRequestId,
         row.timestamp,
+        row.emailRemoved,
+        row.responseHeaderRequestId,
         row.response
       ].map(csvEscape).join(",")
     );
@@ -910,6 +910,16 @@
     URL.revokeObjectURL(url);
   }
 
+  function activateInfoTab(panel, tabName) {
+    panel.querySelectorAll("[data-mot-info-tab]").forEach((button) => {
+      button.classList.toggle("mot-tab-active", button.getAttribute("data-mot-info-tab") === tabName);
+    });
+
+    panel.querySelectorAll("[data-mot-info-panel]").forEach((section) => {
+      section.classList.toggle("mot-info-panel-active", section.getAttribute("data-mot-info-panel") === tabName);
+    });
+  }
+
   function applyPanelState(panel) {
     const minimized = getStoredValue(STORAGE_KEYS.minimized, "false") === "true";
     const position = getStoredValue(STORAGE_KEYS.position, "bottom");
@@ -957,54 +967,59 @@
       </div>
 
       <div class="mot-body">
-        <div class="mot-section">
-          <div class="mot-label">Connection</div>
-          <div class="mot-kv">
-            <span>Admin URL</span>
-            <strong data-mot-admin-url>Loading</strong>
-          </div>
-          <div class="mot-kv">
-            <span>Tenant URL</span>
-            <strong data-mot-tenant-url>Loading</strong>
-          </div>
-          <div class="mot-kv">
-            <span>Platform</span>
-            <strong data-mot-platform>Loading</strong>
-          </div>
-        </div>
-
-        <div class="mot-section">
-          <div class="mot-label">Organization Metadata</div>
-          <div class="mot-status-row mot-status-loading" data-mot-org-status>
-            <span class="mot-status-dot"></span>
-            <span class="mot-status-text">Waiting</span>
-          </div>
-          <div class="mot-kv mot-mt">
-            <span>Cell</span>
-            <strong data-mot-cell>Loading</strong>
-          </div>
-          <div class="mot-kv">
-            <span>Pipeline</span>
-            <strong data-mot-pipeline>Loading</strong>
-          </div>
-          <div class="mot-kv">
-            <span>Custom Domains</span>
-            <strong data-mot-custom-domains>Loading</strong>
+        <div class="mot-section mot-info-card">
+          <div class="mot-info-tabs">
+            <button class="mot-info-tab mot-tab-active" type="button" data-mot-action="info-tab" data-mot-info-tab="connection">Connection</button>
+            <button class="mot-info-tab" type="button" data-mot-action="info-tab" data-mot-info-tab="org">Org Metadata</button>
+            <button class="mot-info-tab" type="button" data-mot-action="info-tab" data-mot-info-tab="api">API Test</button>
           </div>
 
-          <details class="mot-details mot-debug-only">
-            <summary>Raw metadata</summary>
-            <pre data-mot-org-json>Debug mode disabled</pre>
-          </details>
-        </div>
-
-        <div class="mot-section">
-          <div class="mot-label">API Session Test</div>
-          <div class="mot-status-row mot-status-loading" data-mot-api-status>
-            <span class="mot-status-dot"></span>
-            <span class="mot-status-text">Waiting</span>
+          <div class="mot-info-panel mot-info-panel-active" data-mot-info-panel="connection">
+            <div class="mot-kv">
+              <span>Admin URL</span>
+              <strong data-mot-admin-url>Loading</strong>
+            </div>
+            <div class="mot-kv">
+              <span>Tenant URL</span>
+              <strong data-mot-tenant-url>Loading</strong>
+            </div>
+            <div class="mot-kv">
+              <span>Platform</span>
+              <strong data-mot-platform>Loading</strong>
+            </div>
           </div>
-          <pre class="mot-error" data-mot-api-error></pre>
+
+          <div class="mot-info-panel" data-mot-info-panel="org">
+            <div class="mot-status-row mot-status-loading" data-mot-org-status>
+              <span class="mot-status-dot"></span>
+              <span class="mot-status-text">Waiting</span>
+            </div>
+            <div class="mot-kv mot-mt">
+              <span>Cell</span>
+              <strong data-mot-cell>Loading</strong>
+            </div>
+            <div class="mot-kv">
+              <span>Pipeline</span>
+              <strong data-mot-pipeline>Loading</strong>
+            </div>
+            <div class="mot-kv">
+              <span>Custom Domains</span>
+              <strong data-mot-custom-domains>Loading</strong>
+            </div>
+
+            <details class="mot-details mot-debug-only">
+              <summary>Raw metadata</summary>
+              <pre data-mot-org-json>Debug mode disabled</pre>
+            </details>
+          </div>
+
+          <div class="mot-info-panel" data-mot-info-panel="api">
+            <div class="mot-status-row mot-status-loading" data-mot-api-status>
+              <span class="mot-status-dot"></span>
+              <span class="mot-status-text">Waiting</span>
+            </div>
+            <pre class="mot-error" data-mot-api-error></pre>
+          </div>
         </div>
 
         <div class="mot-section mot-bounce-manager">
@@ -1022,9 +1037,9 @@
             <button class="mot-small-button" type="button" data-mot-action="load-bounces" data-days="90">90d</button>
           </div>
 
-          <div class="mot-bounce-toolbar">
+          <div class="mot-bounce-toolbar" data-mot-bounce-toolbar style="display: none;">
             <span data-mot-bounce-count>0 results</span>
-            <button class="mot-link-button" type="button" data-mot-action="select-all-bounces">Select page</button>
+            <button class="mot-link-button" type="button" data-mot-action="select-all-bounces">Select all</button>
           </div>
 
           <div class="mot-table-wrap">
@@ -1046,7 +1061,7 @@
             </table>
           </div>
 
-          <div class="mot-pagination">
+          <div class="mot-pagination" data-mot-pagination style="display: none;">
             <button class="mot-small-button" type="button" data-mot-action="prev-bounce-page">Prev</button>
             <span data-mot-bounce-page>Showing 0-0 · Page 1 of 1</span>
             <button class="mot-small-button" type="button" data-mot-action="next-bounce-page">Next</button>
@@ -1059,7 +1074,7 @@
 
           <div data-mot-removal-confirmation></div>
 
-          <details class="mot-details">
+          <details class="mot-details mot-debug-only">
             <summary>Generated query</summary>
             <pre data-mot-bounce-query>Not generated yet</pre>
           </details>
@@ -1080,6 +1095,7 @@
     }
 
     applyPanelState(panel);
+    activateInfoTab(panel, "connection");
 
     panel.addEventListener("click", (event) => {
       const button = event.target.closest("[data-mot-action]");
@@ -1107,6 +1123,11 @@
         return;
       }
 
+      if (action === "info-tab") {
+        activateInfoTab(panel, button.getAttribute("data-mot-info-tab"));
+        return;
+      }
+
       if (action === "load-bounces") {
         const days = Number(button.getAttribute("data-days") || "1");
         loadBounceEmails(days);
@@ -1121,12 +1142,14 @@
       }
 
       if (action === "prev-bounce-page") {
+        if (bounceResults.length === 0) return;
         bounceCurrentPage = Math.max(1, bounceCurrentPage - 1);
         renderBounceResults();
         return;
       }
 
       if (action === "next-bounce-page") {
+        if (bounceResults.length === 0) return;
         const totalPages = Math.max(1, Math.ceil(bounceResults.length / UI_PAGE_SIZE));
         bounceCurrentPage = Math.min(totalPages, bounceCurrentPage + 1);
         renderBounceResults();

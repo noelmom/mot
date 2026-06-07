@@ -31,46 +31,6 @@
   }
 
   function getCurrentActor() {
-    const selectors = [
-      "[data-se='user-menu']",
-      "[data-se='user-menu-button']",
-      "[data-testid='user-menu']",
-      ".user-menu",
-      ".admin-user-menu",
-      "#current-user",
-      "[data-current-user]"
-    ];
-
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
-
-      if (!element) {
-        continue;
-      }
-
-      const value =
-        element.getAttribute("data-current-user") ||
-        element.getAttribute("aria-label") ||
-        element.getAttribute("title") ||
-        element.textContent ||
-        "";
-
-      const cleaned = value.trim().replace(/\s+/g, " ");
-
-      if (cleaned) {
-        return cleaned;
-      }
-    }
-
-    const bodyActor =
-      document.body?.getAttribute("data-current-user") ||
-      document.body?.getAttribute("data-user") ||
-      "";
-
-    if (bodyActor) {
-      return bodyActor.trim();
-    }
-
     return "Current admin session";
   }
 
@@ -144,18 +104,13 @@
           xsrfFound: Boolean(getPageXsrfToken()),
           actor: getCurrentActor(),
           headers: {},
-          data: {
-            error: error.message
-          }
+          data: { error: error.message }
         }
       }));
     }
   });
 
   window.dispatchEvent(new CustomEvent("MOT_V1_PAGE_BRIDGE_READY", {
-    detail: {
-      xsrfFound: Boolean(getPageXsrfToken()),
-      actor: getCurrentActor()
-    }
+    detail: { xsrfFound: Boolean(getPageXsrfToken()) }
   }));
 })();

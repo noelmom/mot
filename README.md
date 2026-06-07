@@ -536,3 +536,45 @@ x-okta-request-id
 x-request-id
 request-id
 ```
+
+
+---
+
+## Phase 3.7.1 Notes
+
+### CSP-Safe UI Cleanup
+
+This build keeps the Phase 3.7 UI cleanup but removes the accidental inline script bridge path.
+
+The page bridge is loaded only from:
+
+```text
+page/page-bridge.js
+```
+
+through Manifest V3 `web_accessible_resources`, avoiding inline script CSP violations.
+
+### Included UI Changes
+
+- Connection, Org Metadata, and API Test now use tabs in one card.
+- Generated Query is hidden unless debug mode is enabled.
+- Select Page is hidden when no results exist.
+- Pagination controls are hidden when there is only one page.
+- The confusing “More results may exist” message was removed.
+- Confirmation CSV columns are now:
+  - timestamp
+  - email_removed
+  - response_header_request_id
+  - response
+
+
+---
+
+## Phase 3.7.3 Notes
+
+### Bounce Manager UI Fix
+
+- `Select page` has been renamed to `Select all`.
+- The result toolbar is hidden before a search is performed.
+- Pagination controls are hidden before a search is performed.
+- Previous/Next actions now do nothing when there are no results.
