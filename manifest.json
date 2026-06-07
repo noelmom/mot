@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "MOT v1",
+  "description": "Melo Operations Toolkit v1 - professional admin operations utilities.",
+  "version": "0.1.0",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.okta.com/*",
+    "https://*.oktapreview.com/*",
+    "https://*.okta-emea.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.okta.com/*",
+        "https://*.oktapreview.com/*",
+        "https://*.okta-emea.com/*"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "css": [
+        "content/content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "action": {
+    "default_title": "MOT v1",
+    "default_popup": "popup/popup.html"
+  }
+}
