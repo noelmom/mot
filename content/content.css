@@ -348,3 +348,19 @@
   text-align: center;
   padding: 18px 8px !important;
 }
+
+
+.mot-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #b0b0b0;
+  font-size: 11px;
+  margin-top: 10px;
+}
+
+.mot-pagination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

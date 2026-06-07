@@ -2,11 +2,15 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log("MOT v1 installed");
 });
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || message.type !== "MOT_FETCH_JSON") {
-    return false;
-  }
+function headersToObject(headers) {
+  const result = {};
+  headers.forEach((value, key) => {
+    result[key.toLowerCase()] = value;
+  });
+  return result;
+}
 
+function handleFetchMessage(message, sendResponse, includeHeaders = false) {
   fetch(message.url, {
     method: message.method || "GET",
     credentials: "include",
@@ -33,6 +37,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ok: response.ok,
         status: response.status,
         statusText: response.statusText,
+        headers: includeHeaders ? headersToObject(response.headers) : {},
         data
       });
     })
@@ -41,11 +46,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ok: false,
         status: 0,
         statusText: "Fetch failed",
+        headers: {},
         data: {
           error: error.message
         }
       });
     });
+}
 
-  return true;
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message) {
+    return false;
+  }
+
+  if (message.type === "MOT_FETCH_JSON") {
+    handleFetchMessage(message, sendResponse, false);
+    return true;
+  }
+
+  if (message.type === "MOT_FETCH_WITH_HEADERS") {
+    handleFetchMessage(message, sendResponse, true);
+    return true;
+  }
+
+  return false;
 });

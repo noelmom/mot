@@ -2,6 +2,14 @@
   const PANEL_ID = "mot-v1-panel";
   const DEBUG_MODE = false;
 
+  const LOG_FETCH_LIMIT = 200;
+  const MAX_LOG_PAGES = 5;
+  const UI_PAGE_SIZE = 25;
+
+  const IGNORED_EMAILS = new Set([
+    "system@okta.com"
+  ]);
+
   const STORAGE_KEYS = {
     minimized: "motMinimized",
     position: "motPosition"
@@ -36,6 +44,8 @@
   ];
 
   let bounceResults = [];
+  let bounceCurrentPage = 1;
+  let processedLogEvents = 0;
 
   function getAdminHost() {
     return window.location.hostname.toLowerCase();
@@ -97,6 +107,13 @@
     const el = document.querySelector(selector);
     if (el) {
       el.textContent = value || "Unavailable";
+    }
+  }
+
+  function clearText(selector) {
+    const el = document.querySelector(selector);
+    if (el) {
+      el.textContent = "";
     }
   }
 
@@ -224,6 +241,42 @@
     });
   }
 
+  async function motPageFetchJson(url, options = {}) {
+    const response = await fetch(url, {
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      },
+      ...options
+    });
+
+    const text = await response.text();
+
+    let data = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { raw: text };
+      }
+    }
+
+    if (!response.ok) {
+      const message =
+        data?.errorSummary ||
+        data?.error ||
+        data?.raw ||
+        response.statusText ||
+        "Request failed";
+
+      throw new Error(`${response.status} ${response.statusText}: ${message}`);
+    }
+
+    return data;
+  }
+
   function getSinceISOString(days) {
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   }
@@ -258,7 +311,13 @@
     values.forEach((value) => {
       const matches = value.match(emailRegex);
       if (matches) {
-        matches.forEach((email) => emails.add(email.toLowerCase()));
+        matches.forEach((email) => {
+          const normalized = email.toLowerCase();
+
+          if (!IGNORED_EMAILS.has(normalized)) {
+            emails.add(normalized);
+          }
+        });
       }
     });
 
@@ -331,6 +390,82 @@
     return [...byEmail.values()].sort((a, b) => {
       return new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0);
     });
+  }
+
+  function parseNextLink(linkHeader) {
+    if (!linkHeader) return null;
+
+    const links = linkHeader.split(",");
+
+    for (const link of links) {
+      const match = link.match(/<([^>]+)>;\s*rel="next"/i);
+      if (match) {
+        return match[1];
+      }
+    }
+
+    return null;
+  }
+
+  function motFetchWithHeaders(url, options = {}) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        {
+          type: "MOT_FETCH_WITH_HEADERS",
+          url,
+          method: options.method || "GET",
+          headers: options.headers || {},
+          body: options.body
+        },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+
+          if (!response) {
+            reject(new Error("No response from MOT service worker"));
+            return;
+          }
+
+          if (!response.ok) {
+            const data = response.data || {};
+            const message =
+              data.errorSummary ||
+              data.error ||
+              data.raw ||
+              response.statusText ||
+              "Request failed";
+
+            reject(new Error(`${response.status} ${response.statusText}: ${message}`));
+            return;
+          }
+
+          resolve(response);
+        }
+      );
+    });
+  }
+
+  async function fetchLogPages(initialUrl) {
+    const allEvents = [];
+    let nextUrl = initialUrl;
+    let pagesFetched = 0;
+
+    while (nextUrl && pagesFetched < MAX_LOG_PAGES) {
+      const response = await motFetchWithHeaders(nextUrl);
+      const pageEvents = Array.isArray(response.data) ? response.data : [];
+
+      allEvents.push(...pageEvents);
+      pagesFetched += 1;
+      nextUrl = parseNextLink(response.headers?.link);
+    }
+
+    return {
+      events: allEvents,
+      pagesFetched,
+      hasMore: Boolean(nextUrl)
+    };
   }
 
   async function loadOrganizationInfo() {
@@ -406,12 +541,36 @@
   function renderBounceResults() {
     const tbody = document.querySelector("[data-mot-bounce-tbody]");
     const countEl = document.querySelector("[data-mot-bounce-count]");
+    const pageEl = document.querySelector("[data-mot-bounce-page]");
+    const prevButton = document.querySelector("[data-mot-action='prev-bounce-page']");
+    const nextButton = document.querySelector("[data-mot-action='next-bounce-page']");
 
     if (!tbody) return;
 
-    countEl.textContent = `${bounceResults.length} result${bounceResults.length === 1 ? "" : "s"}`;
+    const totalResults = bounceResults.length;
+    const totalPages = Math.max(1, Math.ceil(totalResults / UI_PAGE_SIZE));
 
-    if (bounceResults.length === 0) {
+    if (bounceCurrentPage > totalPages) {
+      bounceCurrentPage = totalPages;
+    }
+
+    const startIndex = (bounceCurrentPage - 1) * UI_PAGE_SIZE;
+    const pageItems = bounceResults.slice(startIndex, startIndex + UI_PAGE_SIZE);
+    const displayStart = totalResults === 0 ? 0 : startIndex + 1;
+    const displayEnd = Math.min(startIndex + UI_PAGE_SIZE, totalResults);
+
+    countEl.textContent = `${totalResults} result${totalResults === 1 ? "" : "s"} · ${processedLogEvents} events processed`;
+    pageEl.textContent = `Showing ${displayStart}-${displayEnd} · Page ${bounceCurrentPage} of ${totalPages}`;
+
+    if (prevButton) {
+      prevButton.disabled = bounceCurrentPage <= 1;
+    }
+
+    if (nextButton) {
+      nextButton.disabled = bounceCurrentPage >= totalPages;
+    }
+
+    if (totalResults === 0) {
       tbody.innerHTML = `
         <tr>
           <td colspan="5" class="mot-empty">No bounced or deferred emails found for this range.</td>
@@ -420,14 +579,15 @@
       return;
     }
 
-    tbody.innerHTML = bounceResults
-      .map((item, index) => {
+    tbody.innerHTML = pageItems
+      .map((item, pageIndex) => {
+        const realIndex = startIndex + pageIndex;
         const lastSeen = item.lastSeen ? new Date(item.lastSeen).toLocaleString() : "Unavailable";
 
         return `
           <tr>
             <td>
-              <input type="checkbox" data-mot-bounce-select="${index}" aria-label="Select ${item.email}" />
+              <input type="checkbox" data-mot-bounce-select="${realIndex}" aria-label="Select ${item.email}" />
             </td>
             <td class="mot-email-cell">${item.email}</td>
             <td>${item.reason}</td>
@@ -443,19 +603,26 @@
     const apiOrigin = getApiOrigin();
     const since = encodeURIComponent(getSinceISOString(days));
     const filter = encodeURIComponent('eventType eq "system.email.delivery" and outcome.result eq "FAILURE"');
-    const url = `${apiOrigin}/api/v1/logs?since=${since}&filter=${filter}&limit=200`;
+    const url = `${apiOrigin}/api/v1/logs?since=${since}&filter=${filter}&limit=${LOG_FETCH_LIMIT}`;
 
     try {
+      clearText("[data-mot-bounce-error]");
       setStatus("[data-mot-bounce-status]", "loading", `Loading last ${days === 1 ? "24 hours" : `${days} days`}`);
       setText("[data-mot-bounce-query]", decodeURIComponent(url));
 
-      const events = await motFetchJson(url);
-      bounceResults = summarizeBounceEvents(Array.isArray(events) ? events : []);
+      const result = await fetchLogPages(url);
+      processedLogEvents = result.events.length;
+      bounceCurrentPage = 1;
+      bounceResults = summarizeBounceEvents(result.events);
 
       renderBounceResults();
-      setStatus("[data-mot-bounce-status]", "ok", "Bounce search complete");
+
+      const moreText = result.hasMore ? " More results may exist." : "";
+      setStatus("[data-mot-bounce-status]", "ok", `Bounce search complete.${moreText}`);
     } catch (error) {
       bounceResults = [];
+      processedLogEvents = 0;
+      bounceCurrentPage = 1;
       renderBounceResults();
 
       if (error.message.includes("403")) {
@@ -501,16 +668,24 @@
     }
 
     try {
+      clearText("[data-mot-bounce-error]");
       setStatus("[data-mot-bounce-status]", "loading", "Removing selected emails");
 
-      await motFetchJson(`${getApiOrigin()}/api/v1/org/email/bounces/remove-list`, {
+      const response = await motPageFetchJson(`${getApiOrigin()}/api/v1/org/email/bounces/remove-list`, {
         method: "POST",
         body: JSON.stringify({
           emailAddresses: selectedEmails
         })
       });
 
-      setStatus("[data-mot-bounce-status]", "ok", "Selected emails removed from bounce list");
+      const errors = Array.isArray(response?.errors) ? response.errors : [];
+
+      if (errors.length > 0) {
+        setStatus("[data-mot-bounce-status]", "warn", `Removal completed with ${errors.length} error${errors.length === 1 ? "" : "s"}`);
+        setText("[data-mot-bounce-error]", safeJsonStringify(errors));
+      } else {
+        setStatus("[data-mot-bounce-status]", "ok", "Selected emails removed from bounce list");
+      }
     } catch (error) {
       if (error.message.includes("403")) {
         setStatus("[data-mot-bounce-status]", "warn", "Permission denied for bounce removal");
@@ -664,7 +839,7 @@
 
           <div class="mot-bounce-toolbar">
             <span data-mot-bounce-count>0 results</span>
-            <button class="mot-link-button" type="button" data-mot-action="select-all-bounces">Select all</button>
+            <button class="mot-link-button" type="button" data-mot-action="select-all-bounces">Select page</button>
           </div>
 
           <div class="mot-table-wrap">
@@ -686,6 +861,12 @@
             </table>
           </div>
 
+          <div class="mot-pagination">
+            <button class="mot-small-button" type="button" data-mot-action="prev-bounce-page">Prev</button>
+            <span data-mot-bounce-page>Showing 0-0 · Page 1 of 1</span>
+            <button class="mot-small-button" type="button" data-mot-action="next-bounce-page">Next</button>
+          </div>
+
           <div class="mot-button-row">
             <button class="mot-primary-button" type="button" data-mot-action="remove-selected-bounces">Remove Selected</button>
             <button class="mot-small-button" type="button" data-mot-action="export-bounces">Export CSV</button>
@@ -700,7 +881,7 @@
         </div>
 
         <div class="mot-footer">
-          Phase 3: Bounce Email Manager MVP.
+          Phase 3.1: Bounce Manager fixes and pagination.
         </div>
       </div>
     `;
@@ -749,6 +930,19 @@
         document.querySelectorAll("[data-mot-bounce-select]").forEach((checkbox) => {
           checkbox.checked = true;
         });
+        return;
+      }
+
+      if (action === "prev-bounce-page") {
+        bounceCurrentPage = Math.max(1, bounceCurrentPage - 1);
+        renderBounceResults();
+        return;
+      }
+
+      if (action === "next-bounce-page") {
+        const totalPages = Math.max(1, Math.ceil(bounceResults.length / UI_PAGE_SIZE));
+        bounceCurrentPage = Math.min(totalPages, bounceCurrentPage + 1);
+        renderBounceResults();
         return;
       }
 

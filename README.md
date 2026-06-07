@@ -321,3 +321,49 @@ The regular tenant URL is still used for:
 - Bounce/deferred classification may need refinement after reviewing more real event samples.
 - Removal result currently only shows overall success/failure.
 - Debug mode is still hardcoded as disabled.
+
+
+---
+
+## Phase 3.1 Notes
+
+### Bounce Removal Fix
+
+Bounce removal now uses direct page-context fetch from the content script instead of the service worker.
+
+This matches the admin-page request context used by browser-side admin tools and avoids false permission failures on:
+
+```http
+POST /api/v1/org/email/bounces/remove-list
+```
+
+### Ignored Emails
+
+The Bounce Email Manager now ignores system-generated email addresses:
+
+```text
+system@okta.com
+```
+
+### Pagination and Larger Result Sets
+
+Browser-friendly defaults:
+
+```text
+System Log fetch limit per API page: 200
+Maximum System Log pages fetched initially: 5
+Maximum events processed initially: 1,000
+UI page size: 25 email rows
+```
+
+The UI now shows:
+
+```text
+Showing 1-25 · Page 1 of N
+```
+
+and includes Previous/Next buttons.
+
+### Service Worker Header Support
+
+The service worker now supports returning response headers. This is used to read the System Log `Link` header and follow up to 5 pages of results.
