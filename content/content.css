@@ -243,3 +243,12 @@
   font-size: 11px;
   background: #0f0f0f;
 }
+
+
+.mot-debug-only {
+  display: none;
+}
+
+#mot-v1-panel.mot-debug-enabled .mot-debug-only {
+  display: block;
+}

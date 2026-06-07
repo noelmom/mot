@@ -1,5 +1,6 @@
 (() => {
   const PANEL_ID = "mot-v1-panel";
+  const DEBUG_MODE = false;
 
   const STORAGE_KEYS = {
     minimized: "motMinimized",
@@ -110,76 +111,112 @@
     }
   }
 
+  function normalizeLinksToArray(linkValue) {
+    if (!linkValue) return [];
+
+    if (Array.isArray(linkValue)) {
+      return linkValue;
+    }
+
+    if (typeof linkValue === "object") {
+      return [linkValue];
+    }
+
+    return [];
+  }
+
+  function extractCustomDomains(orgInfo) {
+    const alternateLinks = normalizeLinksToArray(orgInfo?._links?.alternate);
+
+    const domains = alternateLinks
+      .map((link) => link?.href)
+      .filter(Boolean)
+      .map((href) => {
+        try {
+          return new URL(href).hostname;
+        } catch {
+          return href;
+        }
+      });
+
+    return [...new Set(domains)];
+  }
+
+  function extractPipeline(orgInfo) {
+    const organizationHref = orgInfo?._links?.organization?.href || "";
+
+    if (orgInfo?.pipeline) return orgInfo.pipeline;
+    if (orgInfo?.pipelineType) return orgInfo.pipelineType;
+    if (orgInfo?.engine) return orgInfo.engine;
+    if (orgInfo?.identityEngine) return orgInfo.identityEngine;
+    if (orgInfo?.oktaPipeline) return orgInfo.oktaPipeline;
+
+    // Temporary heuristic until we normalize against more real endpoint responses.
+    if (organizationHref.toLowerCase().includes("oie")) {
+      return "OIE";
+    }
+
+    return "Review response";
+  }
+
   function extractOrgSummary(orgInfo) {
     if (!orgInfo || typeof orgInfo !== "object") {
       return {
+        cell: "Unavailable",
         pipeline: "Unavailable",
-        customDomains: "Unavailable"
+        customDomainsText: "Unavailable",
+        customDomainsList: []
       };
     }
 
-    const pipeline =
-      orgInfo.pipeline ||
-      orgInfo.pipelineType ||
-      orgInfo.engine ||
-      orgInfo.identityEngine ||
-      orgInfo.oktaPipeline ||
-      "Review response";
-
-    let customDomains = "Review response";
-
-    const candidates = [
-      orgInfo.customDomains,
-      orgInfo.custom_domains,
-      orgInfo.domains,
-      orgInfo.alternateDomains,
-      orgInfo.alternate_domains
-    ];
-
-    const foundArray = candidates.find((item) => Array.isArray(item));
-
-    if (foundArray) {
-      customDomains = foundArray.length > 0 ? `${foundArray.length} found` : "None found";
-    } else if (typeof orgInfo.hasCustomDomains === "boolean") {
-      customDomains = orgInfo.hasCustomDomains ? "Yes" : "No";
-    } else if (typeof orgInfo.customDomain === "boolean") {
-      customDomains = orgInfo.customDomain ? "Yes" : "No";
-    }
+    const customDomains = extractCustomDomains(orgInfo);
 
     return {
-      pipeline: String(pipeline),
-      customDomains
+      cell: orgInfo.cell || "Unavailable",
+      pipeline: extractPipeline(orgInfo),
+      customDomainsText: customDomains.length > 0 ? customDomains.join(", ") : "No custom domains",
+      customDomainsList: customDomains
     };
   }
 
-  async function motFetchJson(url, options = {}) {
-    const response = await fetch(url, {
-      credentials: "include",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...(options.headers || {})
-      },
-      ...options
+  function motFetchJson(url, options = {}) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        {
+          type: "MOT_FETCH_JSON",
+          url,
+          method: options.method || "GET",
+          headers: options.headers || {},
+          body: options.body
+        },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+
+          if (!response) {
+            reject(new Error("No response from MOT service worker"));
+            return;
+          }
+
+          if (!response.ok) {
+            const data = response.data || {};
+            const message =
+              data.errorSummary ||
+              data.error ||
+              data.raw ||
+              response.statusText ||
+              "Request failed";
+
+            reject(new Error(`${response.status} ${response.statusText}: ${message}`));
+            return;
+          }
+
+          resolve(response.data);
+        }
+      );
     });
-
-    const text = await response.text();
-
-    let data = null;
-    if (text) {
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = { raw: text };
-      }
-    }
-
-    if (!response.ok) {
-      const message = data?.errorSummary || data?.error || text || response.statusText;
-      throw new Error(`${response.status} ${response.statusText}: ${message}`);
-    }
-
-    return data;
   }
 
   async function loadOrganizationInfo() {
@@ -201,8 +238,9 @@
       const orgInfo = await motFetchJson(`${tenantOrigin}/.well-known/okta-organization`);
       const summary = extractOrgSummary(orgInfo);
 
+      setText("[data-mot-cell]", summary.cell);
       setText("[data-mot-pipeline]", summary.pipeline);
-      setText("[data-mot-custom-domains]", summary.customDomains);
+      setText("[data-mot-custom-domains]", summary.customDomainsText);
 
       const details = document.querySelector("[data-mot-org-json]");
       if (details) {
@@ -212,6 +250,7 @@
       setStatus("[data-mot-org-status]", "ok", "Organization metadata loaded");
     } catch (error) {
       setStatus("[data-mot-org-status]", "error", "Unable to load organization metadata");
+      setText("[data-mot-cell]", "Unavailable");
       setText("[data-mot-pipeline]", "Unavailable");
       setText("[data-mot-custom-domains]", "Unavailable");
 
@@ -235,7 +274,7 @@
 
       await motFetchJson(`${tenantOrigin}/api/v1/logs?limit=1`);
 
-      setStatus("[data-mot-api-status]", "ok", "API reachable with current admin session");
+      setStatus("[data-mot-api-status]", "ok", "API reachable with current session");
     } catch (error) {
       setStatus("[data-mot-api-status]", "error", "API test failed");
 
@@ -316,6 +355,10 @@
             <span class="mot-status-text">Waiting</span>
           </div>
           <div class="mot-kv mot-mt">
+            <span>Cell</span>
+            <strong data-mot-cell>Loading</strong>
+          </div>
+          <div class="mot-kv">
             <span>Pipeline</span>
             <strong data-mot-pipeline>Loading</strong>
           </div>
@@ -324,9 +367,9 @@
             <strong data-mot-custom-domains>Loading</strong>
           </div>
 
-          <details class="mot-details">
+          <details class="mot-details mot-debug-only">
             <summary>Raw metadata</summary>
-            <pre data-mot-org-json>Not loaded</pre>
+            <pre data-mot-org-json>Debug mode disabled</pre>
           </details>
         </div>
 
@@ -348,12 +391,17 @@
         </div>
 
         <div class="mot-footer">
-          Phase 2: tenant detection and authenticated API test.
+          Phase 2.1: tenant detection and service-worker API test.
         </div>
       </div>
     `;
 
     document.body.appendChild(panel);
+
+    if (DEBUG_MODE) {
+      panel.classList.add("mot-debug-enabled");
+    }
+
     applyPanelState(panel);
 
     panel.addEventListener("click", (event) => {

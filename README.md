@@ -219,3 +219,44 @@ Design principles:
 git add .
 git commit -m "Add tenant detection and API session test"
 ```
+
+
+---
+
+## Phase 2.1 Notes
+
+### Custom Domain Detection
+
+`/.well-known/okta-organization` may list custom domains under:
+
+```json
+"_links": {
+  "alternate": {
+    "href": "https://oie.example.com"
+  }
+}
+```
+
+or as multiple alternate links.
+
+MOT v1 now checks `_links.alternate` and displays:
+
+```text
+No custom domains
+```
+
+or:
+
+```text
+oie.example.com, login.example.com
+```
+
+### Raw Metadata
+
+Raw metadata is now hidden by default.
+
+A future debug mode will expose raw metadata only when explicitly enabled.
+
+### API Test
+
+The API test now runs through the extension service worker instead of the content script directly. This avoids cross-origin fetch problems when the admin URL and tenant URL are different origins.
