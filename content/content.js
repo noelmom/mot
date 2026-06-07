@@ -43,6 +43,14 @@
     return window.location.origin;
   }
 
+  function getApiOrigin() {
+  // All authenticated API calls should use the admin origin.
+  // Example:
+  // https://integrator-4594550-admin.okta.com
+
+  return getAdminOrigin();
+}
+
   function getAdminPattern(host = getAdminHost()) {
     return ADMIN_HOST_PATTERNS.find((pattern) => host.endsWith(pattern.adminSuffix));
   }
@@ -262,28 +270,57 @@
   }
 
   async function testApiAccess() {
-    const tenantOrigin = getTenantOriginFromAdminHost();
+  const apiOrigin = getApiOrigin();
 
-    if (!tenantOrigin) {
-      setStatus("[data-mot-api-status]", "error", "Unable to derive tenant URL");
-      return;
+  if (!apiOrigin) {
+    setStatus(
+      "[data-mot-api-status]",
+      "error",
+      "Unable to determine API origin"
+    );
+    return;
+  }
+
+  try {
+    setStatus(
+      "[data-mot-api-status]",
+      "loading",
+      "Testing API access"
+    );
+
+    await motFetchJson(
+      `${apiOrigin}/api/v1/logs?limit=1`
+    );
+
+    setStatus(
+      "[data-mot-api-status]",
+      "ok",
+      "API reachable with current admin session"
+    );
+  } catch (error) {
+    if (error.message.includes("403")) {
+      setStatus(
+        "[data-mot-api-status]",
+        "warn",
+        "API reachable but permission denied"
+      );
+    } else {
+      setStatus(
+        "[data-mot-api-status]",
+        "error",
+        "API test failed"
+      );
     }
 
-    try {
-      setStatus("[data-mot-api-status]", "loading", "Testing API access");
+    const details = document.querySelector(
+      "[data-mot-api-error]"
+    );
 
-      await motFetchJson(`${tenantOrigin}/api/v1/logs?limit=1`);
-
-      setStatus("[data-mot-api-status]", "ok", "API reachable with current session");
-    } catch (error) {
-      setStatus("[data-mot-api-status]", "error", "API test failed");
-
-      const details = document.querySelector("[data-mot-api-error]");
-      if (details) {
-        details.textContent = error.message;
-      }
+    if (details) {
+      details.textContent = error.message;
     }
   }
+}
 
   function applyPanelState(panel) {
     const minimized = getStoredValue(STORAGE_KEYS.minimized, "false") === "true";
