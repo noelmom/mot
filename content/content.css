@@ -1,9 +1,8 @@
 #mot-v1-panel {
   position: fixed;
   right: 24px;
-  bottom: 24px;
   z-index: 2147483647;
-  width: 320px;
+  width: 360px;
   background: #111111;
   color: #ffffff;
   border: 1px solid #2d2d2d;
@@ -17,13 +16,36 @@
   box-sizing: border-box;
 }
 
+#mot-v1-panel.mot-bottom {
+  bottom: 24px;
+  top: auto;
+}
+
+#mot-v1-panel.mot-top {
+  top: 24px;
+  bottom: auto;
+}
+
 .mot-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  padding: 16px;
+  gap: 8px;
+  padding: 12px 12px 12px 16px;
   border-bottom: 1px solid #2d2d2d;
   background: #151515;
+}
+
+.mot-brand-button {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
 }
 
 .mot-title {
@@ -38,21 +60,56 @@
   color: #b0b0b0;
 }
 
-.mot-close {
+.mot-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mot-control {
   border: 1px solid #3a3a3a;
   background: #1f1f1f;
   color: #d0d0d0;
-  width: 28px;
+  min-width: 28px;
   height: 28px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 18px;
+  font-size: 13px;
   line-height: 1;
+  padding: 0 8px;
 }
 
-.mot-close:hover {
+.mot-control:hover {
   background: #2a2a2a;
   color: #ffffff;
+}
+
+.mot-position {
+  min-width: 54px;
+}
+
+.mot-body {
+  display: block;
+  max-height: min(720px, calc(100vh - 96px));
+  overflow: auto;
+}
+
+#mot-v1-panel.mot-minimized {
+  width: 180px;
+}
+
+#mot-v1-panel.mot-minimized .mot-body,
+#mot-v1-panel.mot-minimized .mot-subtitle,
+#mot-v1-panel.mot-minimized .mot-position {
+  display: none;
+}
+
+#mot-v1-panel.mot-minimized .mot-header {
+  border-bottom: 0;
+}
+
+#mot-v1-panel.mot-minimized .mot-title {
+  font-size: 14px;
 }
 
 .mot-section {
@@ -65,13 +122,30 @@
   color: #9a9a9a;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
-.mot-value {
-  font-size: 13px;
+.mot-kv {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin: 6px 0;
+  font-size: 12px;
+}
+
+.mot-kv span {
+  color: #9a9a9a;
+}
+
+.mot-kv strong {
   color: #ffffff;
+  font-weight: 600;
   word-break: break-word;
+}
+
+.mot-mt {
+  margin-top: 12px;
 }
 
 .mot-status-row {
@@ -86,8 +160,56 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #2e7d32;
+  background: #8a8a8a;
   display: inline-block;
+  flex: 0 0 auto;
+}
+
+.mot-status-ok .mot-status-dot {
+  background: #2e7d32;
+}
+
+.mot-status-warn .mot-status-dot {
+  background: #ed6c02;
+}
+
+.mot-status-error .mot-status-dot {
+  background: #d32f2f;
+}
+
+.mot-status-loading .mot-status-dot {
+  background: #8a8a8a;
+}
+
+.mot-details {
+  margin-top: 12px;
+  border: 1px solid #2d2d2d;
+  border-radius: 8px;
+  background: #0f0f0f;
+}
+
+.mot-details summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  color: #cfcfcf;
+  font-size: 12px;
+}
+
+.mot-details pre,
+.mot-error {
+  margin: 0;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #cfcfcf;
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.mot-error:empty {
+  display: none;
 }
 
 .mot-tool-button {
