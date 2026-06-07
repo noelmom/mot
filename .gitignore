@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Node
+node_modules/
+
+# Build artifacts
+dist/
+build/
+
+# Extension packaging
+*.zip
