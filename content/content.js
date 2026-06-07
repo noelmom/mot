@@ -46,6 +46,8 @@
   let bounceResults = [];
   let bounceCurrentPage = 1;
   let processedLogEvents = 0;
+  let lastRemovalConfirmationCsv = "";
+  let lastRemovalConfirmationFilename = "";
 
   function getAdminHost() {
     return window.location.hostname.toLowerCase();
@@ -275,6 +277,91 @@
     }
 
     return data;
+  }
+
+  function ensurePageContextBridge() {
+    if (window.__MOT_V1_CONTENT_BRIDGE_REQUESTED__) {
+      return;
+    }
+
+    window.__MOT_V1_CONTENT_BRIDGE_REQUESTED__ = true;
+
+    const script = document.createElement("script");
+    script.id = "mot-v1-page-bridge";
+    script.src = chrome.runtime.getURL("page/page-bridge.js");
+    script.onload = () => {
+      script.remove();
+    };
+
+    (document.head || document.documentElement).appendChild(script);
+  }
+
+  function motPageContextFetchJson(url, options = {}) {
+    ensurePageContextBridge();
+
+    return new Promise((resolve, reject) => {
+      const requestId = `mot-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      const timeout = window.setTimeout(() => {
+        window.removeEventListener("MOT_V1_PAGE_FETCH_RESPONSE", onResponse);
+        window.removeEventListener("MOT_V1_PAGE_BRIDGE_READY", onReady);
+        reject(new Error("Page context fetch timed out. Bridge may not have loaded."));
+      }, 30000);
+
+      function cleanup() {
+        window.clearTimeout(timeout);
+        window.removeEventListener("MOT_V1_PAGE_FETCH_RESPONSE", onResponse);
+        window.removeEventListener("MOT_V1_PAGE_BRIDGE_READY", onReady);
+      }
+
+      function dispatchRequest() {
+        window.dispatchEvent(new CustomEvent("MOT_V1_PAGE_FETCH_REQUEST", {
+          detail: {
+            requestId,
+            url,
+            method: options.method || "GET",
+            headers: options.headers || {},
+            body: options.body
+          }
+        }));
+      }
+
+      function onReady() {
+        dispatchRequest();
+      }
+
+      function onResponse(event) {
+        const response = event.detail || {};
+
+        if (response.requestId !== requestId) {
+          return;
+        }
+
+        cleanup();
+
+        if (!response.ok) {
+          const data = response.data || {};
+          const message =
+            data.errorSummary ||
+            data.error ||
+            data.raw ||
+            response.statusText ||
+            "Request failed";
+
+          reject(new Error(`${response.status} ${response.statusText}: ${message}`));
+          return;
+        }
+
+        resolve(response);
+      }
+
+      window.addEventListener("MOT_V1_PAGE_FETCH_RESPONSE", onResponse);
+      window.addEventListener("MOT_V1_PAGE_BRIDGE_READY", onReady);
+
+      // Give the external bridge file a moment to load, then dispatch.
+      // If it is already loaded, the listener will already be registered.
+      window.setTimeout(dispatchRequest, 250);
+    });
   }
 
   function getSinceISOString(days) {
@@ -607,6 +694,8 @@
 
     try {
       clearText("[data-mot-bounce-error]");
+      const confirmation = document.querySelector("[data-mot-removal-confirmation]");
+      if (confirmation) confirmation.innerHTML = "";
       setStatus("[data-mot-bounce-status]", "loading", `Loading last ${days === 1 ? "24 hours" : `${days} days`}`);
       setText("[data-mot-bounce-query]", decodeURIComponent(url));
 
@@ -671,30 +760,126 @@
       clearText("[data-mot-bounce-error]");
       setStatus("[data-mot-bounce-status]", "loading", "Removing selected emails");
 
-      const response = await motPageFetchJson(`${getApiOrigin()}/api/v1/org/email/bounces/remove-list`, {
+      const pageResponse = await motPageContextFetchJson("/api/v1/org/email/bounces/remove-list", {
         method: "POST",
         body: JSON.stringify({
           emailAddresses: selectedEmails
         })
       });
 
-      const errors = Array.isArray(response?.errors) ? response.errors : [];
+      const responseData = pageResponse?.data || {};
+      const errors = Array.isArray(responseData?.errors) ? responseData.errors : [];
+
+      const confirmationFilename = `mot-bounce-removal-confirmation-${new Date().toISOString().replaceAll(":", "-").slice(0, 19)}.csv`;
+      const confirmationCsv = createBounceRemovalConfirmationCsv({
+        emails: selectedEmails,
+        actor: pageResponse?.actor,
+        headers: pageResponse?.headers || {},
+        status: pageResponse?.status,
+        statusText: pageResponse?.statusText,
+        response: responseData
+      });
+
+      showRemovalConfirmationDownload(confirmationCsv, confirmationFilename);
 
       if (errors.length > 0) {
         setStatus("[data-mot-bounce-status]", "warn", `Removal completed with ${errors.length} error${errors.length === 1 ? "" : "s"}`);
         setText("[data-mot-bounce-error]", safeJsonStringify(errors));
       } else {
-        setStatus("[data-mot-bounce-status]", "ok", "Selected emails removed from bounce list");
+        setStatus("[data-mot-bounce-status]", "ok", "Selected emails removed from bounce list. Download confirmation CSV.");
       }
     } catch (error) {
       if (error.message.includes("403")) {
-        setStatus("[data-mot-bounce-status]", "warn", "Permission denied for bounce removal");
+        setStatus("[data-mot-bounce-status]", "warn", "Bounce removal denied by admin page session");
       } else {
         setStatus("[data-mot-bounce-status]", "error", "Bounce removal failed");
       }
 
       setText("[data-mot-bounce-error]", error.message);
     }
+  }
+
+  function getResponseRequestId(headers = {}) {
+    return (
+      headers["x-okta-request-id"] ||
+      headers["x-request-id"] ||
+      headers["request-id"] ||
+      headers["x-amzn-requestid"] ||
+      ""
+    );
+  }
+
+  function csvEscape(value) {
+    return `"${String(value ?? "").replaceAll('"', '""')}"`;
+  }
+
+  function createBounceRemovalConfirmationCsv({ emails, actor, headers, status, statusText, response }) {
+    const timestamp = new Date().toISOString();
+    const requestId = getResponseRequestId(headers);
+    const errors = Array.isArray(response?.errors) ? response.errors : [];
+    const responseSummary =
+      status === 200 && errors.length === 0
+        ? "successful"
+        : errors.length > 0
+          ? JSON.stringify(errors)
+          : JSON.stringify(response || {});
+
+    const rows = emails.map((email) => ({
+      emailRemoved: email,
+      actor: actor || "Current admin session",
+      responseHeaderRequestId: requestId,
+      timestamp,
+      response: status === 200 && errors.length === 0 ? "200 successful" : `${status} ${statusText}: ${responseSummary}`
+    }));
+
+    const headersRow = [
+      "email_removed",
+      "actor_requested_removal",
+      "response_header_request_id",
+      "timestamp",
+      "response"
+    ];
+
+    const csvRows = rows.map((row) =>
+      [
+        row.emailRemoved,
+        row.actor,
+        row.responseHeaderRequestId,
+        row.timestamp,
+        row.response
+      ].map(csvEscape).join(",")
+    );
+
+    return [headersRow.join(","), ...csvRows].join("\n");
+  }
+
+  function downloadTextFile(filename, content, mimeType = "text/csv") {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+
+    URL.revokeObjectURL(url);
+  }
+
+  function showRemovalConfirmationDownload(csv, filename) {
+    lastRemovalConfirmationCsv = csv;
+    lastRemovalConfirmationFilename = filename;
+
+    const container = document.querySelector("[data-mot-removal-confirmation]");
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="mot-confirmation-box">
+        <div>Selected emails removed from bounce list.</div>
+        <button class="mot-small-button" type="button" data-mot-action="download-removal-confirmation">
+          Download confirmation CSV
+        </button>
+      </div>
+    `;
   }
 
   function exportBounceResultsCsv() {
@@ -872,6 +1057,8 @@
             <button class="mot-small-button" type="button" data-mot-action="export-bounces">Export CSV</button>
           </div>
 
+          <div data-mot-removal-confirmation></div>
+
           <details class="mot-details">
             <summary>Generated query</summary>
             <pre data-mot-bounce-query>Not generated yet</pre>
@@ -953,6 +1140,16 @@
 
       if (action === "export-bounces") {
         exportBounceResultsCsv();
+        return;
+      }
+
+      if (action === "download-removal-confirmation") {
+        if (!lastRemovalConfirmationCsv || !lastRemovalConfirmationFilename) {
+          setStatus("[data-mot-bounce-status]", "warn", "No confirmation CSV available");
+          return;
+        }
+
+        downloadTextFile(lastRemovalConfirmationFilename, lastRemovalConfirmationCsv);
       }
     });
 

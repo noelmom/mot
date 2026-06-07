@@ -364,3 +364,18 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+
+.mot-confirmation-box {
+  margin-top: 12px;
+  border: 1px solid #2e7d32;
+  background: #102015;
+  color: #e6f4ea;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 12px;
+}
+
+.mot-confirmation-box .mot-small-button {
+  margin-top: 8px;
+}

@@ -367,3 +367,172 @@ and includes Previous/Next buttons.
 ### Service Worker Header Support
 
 The service worker now supports returning response headers. This is used to read the System Log `Link` header and follow up to 5 pages of results.
+
+
+---
+
+## Phase 3.2 Notes
+
+### Bounce Removal XSRF Fix
+
+Bounce removal now sends the Okta XSRF token header for POST requests.
+
+The token is read from the browser cookie:
+
+```text
+XSRF-TOKEN
+```
+
+and sent as:
+
+```http
+X-Okta-XsrfToken: <token>
+```
+
+This is required for some admin-session write actions even when GET API calls work.
+
+### Updated Bounce Removal Behavior
+
+If the XSRF cookie is missing, MOT v1 now shows:
+
+```text
+Missing XSRF-TOKEN cookie. Refresh the admin page and try again.
+```
+
+If the POST still returns 403, the UI now indicates that the request may be denied due to XSRF/session context rather than assuming the admin lacks permissions.
+
+
+---
+
+## Phase 3.3 Notes
+
+### Page Context POST Fix
+
+The previous XSRF approach attempted to read the `XSRF-TOKEN` cookie from the content script. Some environments do not expose that cookie to content scripts.
+
+Bounce removal now uses a page-context bridge:
+
+```text
+content script → injected page script → same-origin fetch('/api/v1/org/email/bounces/remove-list')
+```
+
+This better matches the request model used by browser-side admin tools because the POST runs inside the actual admin page context.
+
+### Bounce Removal Request
+
+```http
+POST /api/v1/org/email/bounces/remove-list
+Content-Type: application/json
+
+{
+  "emailAddresses": [
+    "user@example.com"
+  ]
+}
+```
+
+The request uses a relative URL from the admin page origin.
+
+
+---
+
+## Phase 3.4 Notes
+
+### External Page Bridge
+
+The previous page-context bridge used inline injected JavaScript. Some admin pages may block inline scripts through Content Security Policy.
+
+Phase 3.4 moves the bridge to an external extension file:
+
+```text
+page/page-bridge.js
+```
+
+and exposes it through Manifest V3:
+
+```json
+"web_accessible_resources": [
+  {
+    "resources": ["page/page-bridge.js"],
+    "matches": ["https://*.okta.com/*"]
+  }
+]
+```
+
+The content script injects this external file into the page context and then uses window events to request same-origin page fetches.
+
+This is intended to support admin-page-context POST requests for:
+
+```http
+POST /api/v1/org/email/bounces/remove-list
+```
+
+
+---
+
+## Phase 3.5 Notes
+
+### XSRF Token Source
+
+Rockstar-style admin page POST requests use the page-provided XSRF token element:
+
+```text
+#_xsrfToken
+```
+
+Phase 3.5 updates the external page bridge to read the token from the actual admin page context and send:
+
+```http
+X-Okta-XsrfToken: <value from #_xsrfToken>
+```
+
+It also sends:
+
+```http
+X-Okta-User-Agent-Extended: MOT-v1
+```
+
+This more closely matches the browser-side admin request pattern.
+
+
+---
+
+## Phase 3.6 Notes
+
+### Bounce Removal Confirmation CSV
+
+After a successful or partially successful bounce removal request, MOT v1 now shows:
+
+```text
+Selected emails removed from bounce list. Download confirmation CSV.
+```
+
+The downloadable CSV includes:
+
+```text
+email_removed
+actor_requested_removal
+response_header_request_id
+timestamp
+response
+```
+
+### Response Field
+
+A `200` response with no API errors is recorded as:
+
+```text
+200 successful
+```
+
+Any non-200 response or API-level errors are recorded with the status code and error details.
+
+### Request ID
+
+The page bridge now returns response headers so MOT can capture request IDs such as:
+
+```text
+x-okta-request-id
+x-request-id
+request-id
+```
