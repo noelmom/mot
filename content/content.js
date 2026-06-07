@@ -35,6 +35,8 @@
     }
   ];
 
+  let bounceResults = [];
+
   function getAdminHost() {
     return window.location.hostname.toLowerCase();
   }
@@ -44,12 +46,8 @@
   }
 
   function getApiOrigin() {
-  // All authenticated API calls should use the admin origin.
-  // Example:
-  // https://integrator-4594550-admin.okta.com
-
-  return getAdminOrigin();
-}
+    return getAdminOrigin();
+  }
 
   function getAdminPattern(host = getAdminHost()) {
     return ADMIN_HOST_PATTERNS.find((pattern) => host.endsWith(pattern.adminSuffix));
@@ -159,7 +157,6 @@
     if (orgInfo?.identityEngine) return orgInfo.identityEngine;
     if (orgInfo?.oktaPipeline) return orgInfo.oktaPipeline;
 
-    // Temporary heuristic until we normalize against more real endpoint responses.
     if (organizationHref.toLowerCase().includes("oie")) {
       return "OIE";
     }
@@ -227,6 +224,115 @@
     });
   }
 
+  function getSinceISOString(days) {
+    return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  function getNestedValues(value, results = []) {
+    if (value === null || value === undefined) {
+      return results;
+    }
+
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      results.push(String(value));
+      return results;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((item) => getNestedValues(item, results));
+      return results;
+    }
+
+    if (typeof value === "object") {
+      Object.values(value).forEach((item) => getNestedValues(item, results));
+    }
+
+    return results;
+  }
+
+  function extractEmailsFromEvent(event) {
+    const values = getNestedValues(event);
+    const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+    const emails = new Set();
+
+    values.forEach((value) => {
+      const matches = value.match(emailRegex);
+      if (matches) {
+        matches.forEach((email) => emails.add(email.toLowerCase()));
+      }
+    });
+
+    return [...emails];
+  }
+
+  function getFailureReason(event) {
+    const reasonCandidates = [
+      event?.outcome?.reason,
+      event?.debugContext?.debugData?.reason,
+      event?.debugContext?.debugData?.failureReason,
+      event?.debugContext?.debugData?.error,
+      event?.debugContext?.debugData?.errorSummary,
+      event?.debugContext?.debugData?.smtpResponse,
+      event?.debugContext?.debugData?.deliveryStatus,
+      event?.displayMessage
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const lower = reasonCandidates.toLowerCase();
+
+    if (lower.includes("bounce")) return "bounce";
+    if (lower.includes("defer")) return "deferred";
+
+    return reasonCandidates || "failure";
+  }
+
+  function isBounceOrDeferredEvent(event) {
+    const searchableText = getNestedValues(event).join(" ").toLowerCase();
+    return searchableText.includes("bounce") || searchableText.includes("defer");
+  }
+
+  function summarizeBounceEvents(events) {
+    const byEmail = new Map();
+
+    events.forEach((event) => {
+      if (!isBounceOrDeferredEvent(event)) {
+        return;
+      }
+
+      const emails = extractEmailsFromEvent(event);
+      const reason = getFailureReason(event);
+      const published = event?.published || "";
+
+      emails.forEach((email) => {
+        const existing = byEmail.get(email) || {
+          email,
+          reason,
+          count: 0,
+          lastSeen: "",
+          eventUuids: []
+        };
+
+        existing.count += 1;
+
+        if (!existing.lastSeen || new Date(published) > new Date(existing.lastSeen)) {
+          existing.lastSeen = published;
+          existing.reason = reason;
+        }
+
+        if (event?.uuid) {
+          existing.eventUuids.push(event.uuid);
+        }
+
+        byEmail.set(email, existing);
+      });
+    });
+
+    return [...byEmail.values()].sort((a, b) => {
+      return new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0);
+    });
+  }
+
   async function loadOrganizationInfo() {
     const tenantOrigin = getTenantOriginFromAdminHost();
     const adminOrigin = getAdminOrigin();
@@ -270,57 +376,179 @@
   }
 
   async function testApiAccess() {
-  const apiOrigin = getApiOrigin();
+    const apiOrigin = getApiOrigin();
 
-  if (!apiOrigin) {
-    setStatus(
-      "[data-mot-api-status]",
-      "error",
-      "Unable to determine API origin"
-    );
-    return;
-  }
-
-  try {
-    setStatus(
-      "[data-mot-api-status]",
-      "loading",
-      "Testing API access"
-    );
-
-    await motFetchJson(
-      `${apiOrigin}/api/v1/logs?limit=1`
-    );
-
-    setStatus(
-      "[data-mot-api-status]",
-      "ok",
-      "API reachable with current admin session"
-    );
-  } catch (error) {
-    if (error.message.includes("403")) {
-      setStatus(
-        "[data-mot-api-status]",
-        "warn",
-        "API reachable but permission denied"
-      );
-    } else {
-      setStatus(
-        "[data-mot-api-status]",
-        "error",
-        "API test failed"
-      );
+    if (!apiOrigin) {
+      setStatus("[data-mot-api-status]", "error", "Unable to determine API origin");
+      return;
     }
 
-    const details = document.querySelector(
-      "[data-mot-api-error]"
-    );
+    try {
+      setStatus("[data-mot-api-status]", "loading", "Testing API access");
 
-    if (details) {
-      details.textContent = error.message;
+      await motFetchJson(`${apiOrigin}/api/v1/logs?limit=1`);
+
+      setStatus("[data-mot-api-status]", "ok", "API reachable with current admin session");
+    } catch (error) {
+      if (error.message.includes("403")) {
+        setStatus("[data-mot-api-status]", "warn", "API reachable but permission denied");
+      } else {
+        setStatus("[data-mot-api-status]", "error", "API test failed");
+      }
+
+      const details = document.querySelector("[data-mot-api-error]");
+      if (details) {
+        details.textContent = error.message;
+      }
     }
   }
-}
+
+  function renderBounceResults() {
+    const tbody = document.querySelector("[data-mot-bounce-tbody]");
+    const countEl = document.querySelector("[data-mot-bounce-count]");
+
+    if (!tbody) return;
+
+    countEl.textContent = `${bounceResults.length} result${bounceResults.length === 1 ? "" : "s"}`;
+
+    if (bounceResults.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" class="mot-empty">No bounced or deferred emails found for this range.</td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = bounceResults
+      .map((item, index) => {
+        const lastSeen = item.lastSeen ? new Date(item.lastSeen).toLocaleString() : "Unavailable";
+
+        return `
+          <tr>
+            <td>
+              <input type="checkbox" data-mot-bounce-select="${index}" aria-label="Select ${item.email}" />
+            </td>
+            <td class="mot-email-cell">${item.email}</td>
+            <td>${item.reason}</td>
+            <td>${item.count}</td>
+            <td>${lastSeen}</td>
+          </tr>
+        `;
+      })
+      .join("");
+  }
+
+  async function loadBounceEmails(days) {
+    const apiOrigin = getApiOrigin();
+    const since = encodeURIComponent(getSinceISOString(days));
+    const filter = encodeURIComponent('eventType eq "system.email.delivery" and outcome.result eq "FAILURE"');
+    const url = `${apiOrigin}/api/v1/logs?since=${since}&filter=${filter}&limit=200`;
+
+    try {
+      setStatus("[data-mot-bounce-status]", "loading", `Loading last ${days === 1 ? "24 hours" : `${days} days`}`);
+      setText("[data-mot-bounce-query]", decodeURIComponent(url));
+
+      const events = await motFetchJson(url);
+      bounceResults = summarizeBounceEvents(Array.isArray(events) ? events : []);
+
+      renderBounceResults();
+      setStatus("[data-mot-bounce-status]", "ok", "Bounce search complete");
+    } catch (error) {
+      bounceResults = [];
+      renderBounceResults();
+
+      if (error.message.includes("403")) {
+        setStatus("[data-mot-bounce-status]", "warn", "Permission denied for System Log search");
+      } else {
+        setStatus("[data-mot-bounce-status]", "error", "Bounce search failed");
+      }
+
+      setText("[data-mot-bounce-error]", error.message);
+    }
+  }
+
+  function getSelectedBounceEmails() {
+    const selected = [];
+    document.querySelectorAll("[data-mot-bounce-select]").forEach((checkbox) => {
+      if (!checkbox.checked) return;
+
+      const index = Number(checkbox.getAttribute("data-mot-bounce-select"));
+      const item = bounceResults[index];
+
+      if (item?.email) {
+        selected.push(item.email);
+      }
+    });
+
+    return selected;
+  }
+
+  async function removeSelectedBounceEmails() {
+    const selectedEmails = getSelectedBounceEmails();
+
+    if (selectedEmails.length === 0) {
+      setStatus("[data-mot-bounce-status]", "warn", "Select at least one email first");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Remove ${selectedEmails.length} email address${selectedEmails.length === 1 ? "" : "es"} from the bounce list?\n\n${selectedEmails.join("\n")}`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setStatus("[data-mot-bounce-status]", "loading", "Removing selected emails");
+
+      await motFetchJson(`${getApiOrigin()}/api/v1/org/email/bounces/remove-list`, {
+        method: "POST",
+        body: JSON.stringify({
+          emailAddresses: selectedEmails
+        })
+      });
+
+      setStatus("[data-mot-bounce-status]", "ok", "Selected emails removed from bounce list");
+    } catch (error) {
+      if (error.message.includes("403")) {
+        setStatus("[data-mot-bounce-status]", "warn", "Permission denied for bounce removal");
+      } else {
+        setStatus("[data-mot-bounce-status]", "error", "Bounce removal failed");
+      }
+
+      setText("[data-mot-bounce-error]", error.message);
+    }
+  }
+
+  function exportBounceResultsCsv() {
+    if (bounceResults.length === 0) {
+      setStatus("[data-mot-bounce-status]", "warn", "No results to export");
+      return;
+    }
+
+    const headers = ["email", "reason", "count", "lastSeen", "eventUuids"];
+    const rows = bounceResults.map((item) =>
+      headers
+        .map((header) => {
+          const value = header === "eventUuids" ? item.eventUuids.join(" | ") : item[header];
+          return `"${String(value || "").replaceAll('"', '""')}"`;
+        })
+        .join(",")
+    );
+
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mot-bounce-results-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+
+    URL.revokeObjectURL(url);
+  }
 
   function applyPanelState(panel) {
     const minimized = getStoredValue(STORAGE_KEYS.minimized, "false") === "true";
@@ -419,16 +647,60 @@
           <pre class="mot-error" data-mot-api-error></pre>
         </div>
 
-        <div class="mot-section">
-          <div class="mot-label">Tools</div>
-          <button class="mot-tool-button" type="button" disabled>
-            Bounce Email Manager
-            <span>Coming Soon</span>
-          </button>
+        <div class="mot-section mot-bounce-manager">
+          <div class="mot-label">Bounce Email Manager</div>
+
+          <div class="mot-status-row mot-status-loading" data-mot-bounce-status>
+            <span class="mot-status-dot"></span>
+            <span class="mot-status-text">Ready</span>
+          </div>
+
+          <div class="mot-button-row">
+            <button class="mot-small-button" type="button" data-mot-action="load-bounces" data-days="1">24h</button>
+            <button class="mot-small-button" type="button" data-mot-action="load-bounces" data-days="7">7d</button>
+            <button class="mot-small-button" type="button" data-mot-action="load-bounces" data-days="30">30d</button>
+            <button class="mot-small-button" type="button" data-mot-action="load-bounces" data-days="90">90d</button>
+          </div>
+
+          <div class="mot-bounce-toolbar">
+            <span data-mot-bounce-count>0 results</span>
+            <button class="mot-link-button" type="button" data-mot-action="select-all-bounces">Select all</button>
+          </div>
+
+          <div class="mot-table-wrap">
+            <table class="mot-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Email</th>
+                  <th>Reason</th>
+                  <th>Count</th>
+                  <th>Last Seen</th>
+                </tr>
+              </thead>
+              <tbody data-mot-bounce-tbody>
+                <tr>
+                  <td colspan="5" class="mot-empty">Choose a time range to search.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mot-button-row">
+            <button class="mot-primary-button" type="button" data-mot-action="remove-selected-bounces">Remove Selected</button>
+            <button class="mot-small-button" type="button" data-mot-action="export-bounces">Export CSV</button>
+          </div>
+
+          <details class="mot-details">
+            <summary>Generated query</summary>
+            <pre data-mot-bounce-query>Not generated yet</pre>
+          </details>
+
+          <pre class="mot-error" data-mot-bounce-error></pre>
         </div>
 
         <div class="mot-footer">
-          Phase 2.1: tenant detection and service-worker API test.
+          Phase 3: Bounce Email Manager MVP.
         </div>
       </div>
     `;
@@ -464,6 +736,29 @@
         const nextPosition = currentPosition === "top" ? "bottom" : "top";
         setStoredValue(STORAGE_KEYS.position, nextPosition);
         applyPanelState(panel);
+        return;
+      }
+
+      if (action === "load-bounces") {
+        const days = Number(button.getAttribute("data-days") || "1");
+        loadBounceEmails(days);
+        return;
+      }
+
+      if (action === "select-all-bounces") {
+        document.querySelectorAll("[data-mot-bounce-select]").forEach((checkbox) => {
+          checkbox.checked = true;
+        });
+        return;
+      }
+
+      if (action === "remove-selected-bounces") {
+        removeSelectedBounceEmails();
+        return;
+      }
+
+      if (action === "export-bounces") {
+        exportBounceResultsCsv();
       }
     });
 

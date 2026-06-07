@@ -252,3 +252,99 @@
 #mot-v1-panel.mot-debug-enabled .mot-debug-only {
   display: block;
 }
+
+
+.mot-button-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.mot-small-button,
+.mot-primary-button,
+.mot-link-button {
+  border: 1px solid #3a3a3a;
+  background: #1a1a1a;
+  color: #ffffff;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.mot-small-button:hover,
+.mot-primary-button:hover,
+.mot-link-button:hover {
+  background: #2a2a2a;
+}
+
+.mot-primary-button {
+  background: #ffffff;
+  color: #111111;
+  border-color: #ffffff;
+  font-weight: 700;
+}
+
+.mot-primary-button:hover {
+  background: #dcdcdc;
+}
+
+.mot-link-button {
+  border: 0;
+  padding: 0;
+  color: #cfcfcf;
+  background: transparent;
+  text-decoration: underline;
+}
+
+.mot-bounce-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #b0b0b0;
+  font-size: 12px;
+  margin: 12px 0 8px;
+}
+
+.mot-table-wrap {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid #2d2d2d;
+  border-radius: 8px;
+  background: #0f0f0f;
+}
+
+.mot-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.mot-table th,
+.mot-table td {
+  padding: 8px;
+  border-bottom: 1px solid #242424;
+  text-align: left;
+  vertical-align: top;
+}
+
+.mot-table th {
+  color: #b0b0b0;
+  background: #151515;
+  font-weight: 700;
+  position: sticky;
+  top: 0;
+}
+
+.mot-email-cell {
+  word-break: break-all;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.mot-empty {
+  color: #8a8a8a;
+  text-align: center;
+  padding: 18px 8px !important;
+}

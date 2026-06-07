@@ -260,3 +260,64 @@ A future debug mode will expose raw metadata only when explicitly enabled.
 ### API Test
 
 The API test now runs through the extension service worker instead of the content script directly. This avoids cross-origin fetch problems when the admin URL and tenant URL are different origins.
+
+
+---
+
+## Phase 3 Notes: Bounce Email Manager MVP
+
+Phase 3 adds the first functional MOT v1 tool.
+
+### What it does
+
+- Searches System Log for `system.email.delivery` failures
+- Supports 24h, 7d, 30d, and 90d presets
+- Finds events containing `bounce` or `defer`
+- Extracts email addresses from matching event payloads
+- Deduplicates by email address
+- Shows reason, count, and last seen timestamp
+- Supports CSV export
+- Supports removing selected addresses from the bounce list
+
+### System Log query
+
+```text
+eventType eq "system.email.delivery" and outcome.result eq "FAILURE"
+```
+
+### Bounce removal endpoint
+
+```http
+POST /api/v1/org/email/bounces/remove-list
+Content-Type: application/json
+
+{
+  "emailAddresses": [
+    "name@company.com"
+  ]
+}
+```
+
+### Important implementation detail
+
+Authenticated API calls use the admin origin.
+
+Example:
+
+```text
+https://integrator-4594550-admin.okta.com/api/v1/logs
+```
+
+The regular tenant URL is still used for:
+
+```text
+/.well-known/okta-organization
+```
+
+### Known limitations
+
+- Only fetches the first page of System Log results for now.
+- Event parsing is intentionally broad and searches nested payload values for email addresses.
+- Bounce/deferred classification may need refinement after reviewing more real event samples.
+- Removal result currently only shows overall success/failure.
+- Debug mode is still hardcoded as disabled.
