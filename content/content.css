@@ -258,8 +258,8 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 12px;
   margin-bottom: 12px;
+  margin-top: 12px;
 }
 
 .mot-small-button,

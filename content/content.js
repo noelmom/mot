@@ -399,30 +399,30 @@
   }
 
   function getFailureReason(event) {
-    const reasonCandidates = [
-      event?.outcome?.reason,
-      event?.debugContext?.debugData?.reason,
-      event?.debugContext?.debugData?.failureReason,
-      event?.debugContext?.debugData?.error,
-      event?.debugContext?.debugData?.errorSummary,
-      event?.debugContext?.debugData?.smtpResponse,
-      event?.debugContext?.debugData?.deliveryStatus,
-      event?.displayMessage
-    ]
-      .filter(Boolean)
-      .join(" ");
+    const result = (event?.outcome?.result || "").toUpperCase();
+    const reason = (event?.outcome?.reason || "").toLowerCase();
 
-    const lower = reasonCandidates.toLowerCase();
+    if (result === "DEFERRED" || reason.includes("deferred") || reason.includes("defer")) {
+      return "Deferred";
+    }
 
-    if (lower.includes("bounce")) return "bounce";
-    if (lower.includes("defer")) return "deferred";
+    if (reason.includes("bounce")) {
+      return "Bounce";
+    }
 
-    return reasonCandidates || "failure";
+    return reason || result || "Unknown";
   }
 
   function isBounceOrDeferredEvent(event) {
-    const searchableText = getNestedValues(event).join(" ").toLowerCase();
-    return searchableText.includes("bounce") || searchableText.includes("defer");
+    const result = (event?.outcome?.result || "").toUpperCase();
+    const reason = (event?.outcome?.reason || "").toLowerCase();
+
+    return (
+      result === "DEFERRED" ||
+      reason.includes("deferred") ||
+      reason.includes("defer") ||
+      reason.includes("bounce")
+    );
   }
 
   function summarizeBounceEvents(events) {
@@ -694,23 +694,47 @@
   async function loadBounceEmails(days) {
     const apiOrigin = getApiOrigin();
     const since = encodeURIComponent(getSinceISOString(days));
-    const filter = encodeURIComponent('eventType eq "system.email.delivery" and outcome.result eq "FAILURE"');
-    const url = `${apiOrigin}/api/v1/logs?since=${since}&filter=${filter}&limit=${LOG_FETCH_LIMIT}`;
+
+    const bounceFilter = encodeURIComponent(
+      'eventType eq "system.email.delivery" and outcome.result eq "FAILURE"'
+    );
+
+    const deferredFilter = encodeURIComponent(
+      'eventType eq "system.email.delivery" and outcome.result eq "DEFERRED"'
+    );
+
+    const bounceUrl = `${apiOrigin}/api/v1/logs?since=${since}&filter=${bounceFilter}&limit=${LOG_FETCH_LIMIT}`;
+    const deferredUrl = `${apiOrigin}/api/v1/logs?since=${since}&filter=${deferredFilter}&limit=${LOG_FETCH_LIMIT}`;
 
     try {
       clearText("[data-mot-bounce-error]");
       const confirmation = document.querySelector("[data-mot-removal-confirmation]");
       if (confirmation) confirmation.innerHTML = "";
-      setStatus("[data-mot-bounce-status]", "loading", `Loading last ${days === 1 ? "24 hours" : `${days} days`}`);
-      setText("[data-mot-bounce-query]", decodeURIComponent(url));
 
-      const result = await fetchLogPages(url);
-      processedLogEvents = result.events.length;
+      setStatus("[data-mot-bounce-status]", "loading", `Loading last ${days === 1 ? "24 hours" : `${days} days`}`);
+
+      setText(
+        "[data-mot-bounce-query]",
+        `${decodeURIComponent(bounceUrl)}
+
+${decodeURIComponent(deferredUrl)}`
+      );
+
+      const [bounceResult, deferredResult] = await Promise.all([
+        fetchLogPages(bounceUrl),
+        fetchLogPages(deferredUrl)
+      ]);
+
+      const allEvents = [
+        ...bounceResult.events,
+        ...deferredResult.events
+      ];
+
+      processedLogEvents = allEvents.length;
       bounceCurrentPage = 1;
-      bounceResults = summarizeBounceEvents(result.events);
+      bounceResults = summarizeBounceEvents(allEvents);
 
       renderBounceResults();
-
       setStatus("[data-mot-bounce-status]", "ok", "Bounce search complete");
     } catch (error) {
       bounceResults = [];
@@ -1048,7 +1072,7 @@
                 <tr>
                   <th></th>
                   <th>Email</th>
-                  <th>Reason</th>
+                  <th>State</th>
                   <th>Count</th>
                   <th>Last Seen</th>
                 </tr>
