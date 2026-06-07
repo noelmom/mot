@@ -1,429 +1,310 @@
-# MOT v1
+# MOT v1 - Melo Operations Toolkit
 
-**MOT v1** stands for **Melo Operations Toolkit v1**.
+A lightweight browser extension that provides operational tools directly inside the Okta Admin Console.
 
-MOT v1 is a professional browser-extension-based operations toolkit. It is designed to run inside an authenticated admin browser session and provide lightweight administrative utilities without requiring static API tokens.
-
----
-
-## Phase 2 Goal
-
-Phase 2 adds the foundation required before building feature modules:
-
-- Admin dashboard hostname detection
-- Tenant URL derivation from admin URL
-- Platform detection
-- Organization metadata lookup using `/.well-known/okta-organization`
-- Authenticated API session test using `/api/v1/logs?limit=1`
-- Support for commercial, preview, EMEA, gov, and mil hostname patterns
+MOT is designed to reduce the need for external scripts, Postman collections, browser bookmarks, and one-off utilities by bringing commonly used administrative workflows directly into the authenticated admin experience.
 
 ---
 
-## Supported Admin Hostname Patterns
-
-MOT v1 currently injects only on admin dashboard URLs matching:
+# Current Status
 
 ```text
-*-admin.okta.com
-*-admin.oktapreview.com
-*-admin.okta-emea.com
-*-admin.okta-gov.com
-*-admin.okta.mil
+Phase 3
+Version: v0.3.9rc1
+Status: Stable Release Candidate
 ```
+
+Maintainer:
+
+```text
+Noelmo Melo
+```
+
+---
+
+# Project Goals
+
+MOT follows a few core principles:
+
+* No API tokens required
+* No credential storage
+* No external telemetry
+* No tenant data sent to third-party services
+* Use the current authenticated admin session
+* Keep the interface professional and lightweight
+* Build tools administrators actually use daily
+
+---
+
+# Supported Platforms
+
+Current support:
+
+```text
+*.okta.com
+*.oktapreview.com
+*.okta-emea.com
+```
+
+Planned support:
+
+```text
+*.okta-gov.com
+*.okta.mil
+```
+
+MOT only injects into Okta Admin Dashboard pages.
 
 Examples:
 
 ```text
-integrator-4594550-admin.okta.com
-ndentity-lab-admin.okta.com
+tenant-admin.okta.com
+tenant-admin.oktapreview.com
+tenant-admin.okta-emea.com
 ```
 
 ---
 
-## Tenant URL Detection
+# Architecture
 
-Admin URLs are not always the same as the regular tenant URL.
+MOT uses a hybrid browser-extension architecture.
 
-Example:
+## Content Script
+
+Responsible for:
+
+* Rendering UI
+* Handling user interactions
+* Displaying results
+* Managing panel state
+
+## Background Service Worker
+
+Responsible for:
+
+* API reads
+* System Log retrieval
+* Pagination handling
+
+## Page Bridge
+
+Responsible for:
+
+* Same-origin admin POST requests
+* XSRF-protected operations
+* Bounce removal requests
+
+The page bridge executes in page context and avoids CSP restrictions.
+
+---
+
+# Tenant Intelligence
+
+MOT automatically identifies tenant information using:
+
+```http
+GET /.well-known/okta-organization
+```
+
+Displayed information:
+
+* Admin URL
+* Tenant URL
+* Cell
+* Pipeline
+* Custom Domains
+
+---
+
+## Example
+
+Admin URL:
 
 ```text
-Admin URL:
 https://integrator-4594550-admin.okta.com
+```
 
 Tenant URL:
+
+```text
 https://integrator-4594550.okta.com
 ```
 
-MOT v1 derives the tenant URL from the admin URL and then calls:
-
-```http
-GET https://<tenant>/.well-known/okta-organization
-```
-
-This endpoint is used to gather tenant metadata such as pipeline/engine and custom domain information when available.
-
----
-
-## API Session Test
-
-MOT v1 also tests whether the current browser session can call the tenant API:
-
-```http
-GET https://<tenant>/api/v1/logs?limit=1
-```
-
-This confirms whether the admin session can reach APIs needed for future modules.
-
----
-
-## Local Setup
-
-1. Open Chrome or Edge.
-2. Go to:
+Pipeline:
 
 ```text
-chrome://extensions
+OIE
 ```
 
-or:
+Cell:
 
 ```text
-edge://extensions
+OK14
 ```
 
-3. Enable **Developer mode**.
-4. Click **Load unpacked**.
-5. Select the `mot-v1-phase2-org-detection` folder.
-6. Open a supported admin dashboard URL.
-7. Confirm the MOT panel shows:
+Custom Domains:
 
 ```text
-Admin URL
-Tenant URL
-Platform
-Organization Metadata
-API Session Test
+oie.company.com
+login.company.com
 ```
 
 ---
 
-## Phase 2 File Structure
+# MOT Panel
+
+The MOT panel supports:
+
+* Minimize
+* Close
+* Move Top / Bottom
+* Persistent Position
+* Persistent Minimized State
+
+---
+
+## Header Controls
 
 ```text
-mot-v1/
-├── README.md
-├── manifest.json
-├── content/
-│   ├── content.js
-│   └── content.css
-├── popup/
-│   ├── popup.html
-│   ├── popup.css
-│   └── popup.js
-├── background/
-│   └── service-worker.js
-├── modules/
-│   └── utils.js
-└── assets/
+[MOT] MOT v1
+
+⚙ Settings
+Top / Bottom
+Minimize
+Close
 ```
 
 ---
 
-## Current Design Direction
+# Settings
 
-MOT v1 is designed to look and feel like a professional enterprise operations tool.
+Accessed through the gear icon.
 
-Design principles:
-
-- Black, white, and gray color palette
-- Dark-mode-first experience
-- Clean and minimal interface
-- High information density
-- Accessibility-focused
-- Functional over decorative
-- Consistent spacing and typography
-- Enterprise-grade appearance
-
----
-
-## Current Features
-
-- Floating MOT panel
-- Minimize and expand
-- Close panel
-- Move panel to top-right or bottom-right
-- Admin dashboard detection
-- Tenant URL derivation
-- Platform detection
-- Organization metadata lookup
-- Authenticated API test
-
----
-
-## Future TODO / Roadmap
-
-### MOT-000: Tenant Detection
-
-- [x] Detect current admin URL
-- [x] Derive regular tenant URL from admin URL
-- [x] Call `/.well-known/okta-organization`
-- [x] Display tenant base URL
-- [x] Display admin URL
-- [x] Display platform
-- [ ] Normalize pipeline/engine display after reviewing real endpoint responses
-- [ ] Display custom domain list if available
-- [ ] Improve custom domain parsing after reviewing real endpoint responses
-- [x] Support commercial, preview, EMEA, gov, and mil tenant patterns
-
-### MOT-001: Bounce Email Manager
-
-- [ ] Query email delivery failures
-- [ ] Add time range filters
-- [ ] Extract bounced/deferred email addresses
-- [ ] Deduplicate results
-- [ ] Show count and last seen timestamp
-- [ ] Remove single email from bounce list
-- [ ] Remove selected emails from bounce list
-- [ ] Export results to CSV
-- [ ] Copy API request
-- [ ] Copy System Log query
-- [ ] Add success/failure result panel
-
-### MOT-002: Email Delivery Dashboard
-
-- [ ] Show total delivery failures
-- [ ] Show bounce count
-- [ ] Show deferred count
-- [ ] Show top affected domains
-- [ ] Show most common failure reasons
-- [ ] Show trend by time range
-
----
-
-## Security Principles
-
-- No API tokens required
-- No credential storage
-- No external data collection
-- No telemetry
-- No tenant data sent to third-party services
-- Use current authenticated browser session
-- Confirm before write actions
-- Keep permissions as narrow as possible
-
----
-
-## Recommended Commit
-
-```bash
-git add .
-git commit -m "Add tenant detection and API session test"
-```
-
-
----
-
-## Phase 2.1 Notes
-
-### Custom Domain Detection
-
-`/.well-known/okta-organization` may list custom domains under:
-
-```json
-"_links": {
-  "alternate": {
-    "href": "https://oie.example.com"
-  }
-}
-```
-
-or as multiple alternate links.
-
-MOT v1 now checks `_links.alternate` and displays:
+Current settings:
 
 ```text
-No custom domains
+Enable Debug Mode
 ```
 
-or:
-
-```text
-oie.example.com, login.example.com
-```
-
-### Raw Metadata
-
-Raw metadata is now hidden by default.
-
-A future debug mode will expose raw metadata only when explicitly enabled.
-
-### API Test
-
-The API test now runs through the extension service worker instead of the content script directly. This avoids cross-origin fetch problems when the admin URL and tenant URL are different origins.
-
+Debug Mode is stored locally and persists across sessions.
 
 ---
 
-## Phase 3 Notes: Bounce Email Manager MVP
+# Debug Mode
 
-Phase 3 adds the first functional MOT v1 tool.
+When enabled, MOT exposes:
 
-### What it does
+* Raw Organization Metadata
+* Generated System Log Queries
+* Internal Debug Information
+* Additional Troubleshooting Data
 
-- Searches System Log for `system.email.delivery` failures
-- Supports 24h, 7d, 30d, and 90d presets
-- Finds events containing `bounce` or `defer`
-- Extracts email addresses from matching event payloads
-- Deduplicates by email address
-- Shows reason, count, and last seen timestamp
-- Supports CSV export
-- Supports removing selected addresses from the bounce list
+Debug content is hidden by default.
 
-### System Log query
+---
+
+# Bounce Email Manager
+
+The Bounce Email Manager provides visibility into email delivery failures and allows administrators to remove addresses from the bounce list.
+
+---
+
+## Search Ranges
 
 ```text
-eventType eq "system.email.delivery" and outcome.result eq "FAILURE"
+24 Hours
+7 Days
+30 Days
+90 Days
 ```
 
-### Bounce removal endpoint
+---
 
-```http
-POST /api/v1/org/email/bounces/remove-list
-Content-Type: application/json
+## Supported States
 
-{
-  "emailAddresses": [
-    "name@company.com"
-  ]
-}
+### Bounce
+
+Detected from:
+
+```text
+eventType = system.email.delivery
+outcome.result = FAILURE
 ```
 
-### Important implementation detail
+Displayed as:
 
-Authenticated API calls use the admin origin.
+```text
+Bounce
+```
+
+---
+
+### Deferred
+
+Detected from:
+
+```text
+eventType = system.email.delivery
+outcome.result = DEFERRED
+```
+
+Displayed as:
+
+```text
+Deferred
+```
+
+MOT performs separate searches for FAILURE and DEFERRED events and merges the results into a single view.
+
+---
+
+# Results Table
+
+Displays:
+
+```text
+Email
+State
+Count
+Last Seen
+```
 
 Example:
 
 ```text
-https://integrator-4594550-admin.okta.com/api/v1/logs
+john@example.com
+Bounce
+12
+2026-06-07
 ```
-
-The regular tenant URL is still used for:
-
-```text
-/.well-known/okta-organization
-```
-
-### Known limitations
-
-- Only fetches the first page of System Log results for now.
-- Event parsing is intentionally broad and searches nested payload values for email addresses.
-- Bounce/deferred classification may need refinement after reviewing more real event samples.
-- Removal result currently only shows overall success/failure.
-- Debug mode is still hardcoded as disabled.
-
 
 ---
 
-## Phase 3.1 Notes
+# Pagination
 
-### Bounce Removal Fix
+Results are paginated.
 
-Bounce removal now uses direct page-context fetch from the content script instead of the service worker.
+Current page size:
 
-This matches the admin-page request context used by browser-side admin tools and avoids false permission failures on:
+```text
+25 rows
+```
+
+Pagination controls remain hidden until results are available.
+
+---
+
+# Bounce Removal
+
+Uses:
 
 ```http
 POST /api/v1/org/email/bounces/remove-list
 ```
 
-### Ignored Emails
+Example request:
 
-The Bounce Email Manager now ignores system-generated email addresses:
-
-```text
-system@okta.com
-```
-
-### Pagination and Larger Result Sets
-
-Browser-friendly defaults:
-
-```text
-System Log fetch limit per API page: 200
-Maximum System Log pages fetched initially: 5
-Maximum events processed initially: 1,000
-UI page size: 25 email rows
-```
-
-The UI now shows:
-
-```text
-Showing 1-25 · Page 1 of N
-```
-
-and includes Previous/Next buttons.
-
-### Service Worker Header Support
-
-The service worker now supports returning response headers. This is used to read the System Log `Link` header and follow up to 5 pages of results.
-
-
----
-
-## Phase 3.2 Notes
-
-### Bounce Removal XSRF Fix
-
-Bounce removal now sends the Okta XSRF token header for POST requests.
-
-The token is read from the browser cookie:
-
-```text
-XSRF-TOKEN
-```
-
-and sent as:
-
-```http
-X-Okta-XsrfToken: <token>
-```
-
-This is required for some admin-session write actions even when GET API calls work.
-
-### Updated Bounce Removal Behavior
-
-If the XSRF cookie is missing, MOT v1 now shows:
-
-```text
-Missing XSRF-TOKEN cookie. Refresh the admin page and try again.
-```
-
-If the POST still returns 403, the UI now indicates that the request may be denied due to XSRF/session context rather than assuming the admin lacks permissions.
-
-
----
-
-## Phase 3.3 Notes
-
-### Page Context POST Fix
-
-The previous XSRF approach attempted to read the `XSRF-TOKEN` cookie from the content script. Some environments do not expose that cookie to content scripts.
-
-Bounce removal now uses a page-context bridge:
-
-```text
-content script → injected page script → same-origin fetch('/api/v1/org/email/bounces/remove-list')
-```
-
-This better matches the request model used by browser-side admin tools because the POST runs inside the actual admin page context.
-
-### Bounce Removal Request
-
-```http
-POST /api/v1/org/email/bounces/remove-list
-Content-Type: application/json
-
+```json
 {
   "emailAddresses": [
     "user@example.com"
@@ -431,284 +312,273 @@ Content-Type: application/json
 }
 ```
 
-The request uses a relative URL from the admin page origin.
+Supports:
 
-
----
-
-## Phase 3.4 Notes
-
-### External Page Bridge
-
-The previous page-context bridge used inline injected JavaScript. Some admin pages may block inline scripts through Content Security Policy.
-
-Phase 3.4 moves the bridge to an external extension file:
-
-```text
-page/page-bridge.js
-```
-
-and exposes it through Manifest V3:
-
-```json
-"web_accessible_resources": [
-  {
-    "resources": ["page/page-bridge.js"],
-    "matches": ["https://*.okta.com/*"]
-  }
-]
-```
-
-The content script injects this external file into the page context and then uses window events to request same-origin page fetches.
-
-This is intended to support admin-page-context POST requests for:
-
-```http
-POST /api/v1/org/email/bounces/remove-list
-```
-
+* Single email removal
+* Multi-select removal
+* Bulk removal
 
 ---
 
-## Phase 3.5 Notes
+# Removal Workflow
 
-### XSRF Token Source
+Administrators:
 
-Rockstar-style admin page POST requests use the page-provided XSRF token element:
-
-```text
-#_xsrfToken
-```
-
-Phase 3.5 updates the external page bridge to read the token from the actual admin page context and send:
-
-```http
-X-Okta-XsrfToken: <value from #_xsrfToken>
-```
-
-It also sends:
-
-```http
-X-Okta-User-Agent-Extended: MOT-v1
-```
-
-This more closely matches the browser-side admin request pattern.
-
+1. Search
+2. Select addresses
+3. Click Remove
+4. Confirm operation
+5. Download confirmation CSV
 
 ---
 
-## Phase 3.6 Notes
+## Status Messages
 
-### Bounce Removal Confirmation CSV
-
-After a successful or partially successful bounce removal request, MOT v1 now shows:
+Success:
 
 ```text
-Selected emails removed from bounce list. Download confirmation CSV.
+Bounce removal request completed.
 ```
 
-The downloadable CSV includes:
+Mixed results:
 
 ```text
-email_removed
-actor_requested_removal
-response_header_request_id
+Removal completed: X successful, Y errors.
+```
+
+Failure:
+
+```text
+Bounce removal failed.
+```
+
+---
+
+# Removal Confirmation CSV
+
+Generated after removal operations.
+
+Columns:
+
+```text
 timestamp
+email_removed
+response_header_request_id
 response
 ```
 
-### Response Field
-
-A `200` response with no API errors is recorded as:
+Example:
 
 ```text
+2026-06-07T18:22:11Z
+user@example.com
+YT2h7A8j...
 200 successful
 ```
 
-Any non-200 response or API-level errors are recorded with the status code and error details.
+Each email is processed independently so every row contains its own:
 
-### Request ID
-
-The page bridge now returns response headers so MOT can capture request IDs such as:
-
-```text
-x-okta-request-id
-x-request-id
-request-id
-```
-
+* Timestamp
+* Request ID
+* Response
 
 ---
 
-## Phase 3.7.1 Notes
+# CSV Exports
 
-### CSP-Safe UI Cleanup
+Current exports:
 
-This build keeps the Phase 3.7 UI cleanup but removes the accidental inline script bridge path.
-
-The page bridge is loaded only from:
+### Bounce Search Results
 
 ```text
-page/page-bridge.js
+email
+state
+count
+lastSeen
+eventUuids
 ```
 
-through Manifest V3 `web_accessible_resources`, avoiding inline script CSP violations.
+### Bounce Removal Confirmation
 
-### Included UI Changes
-
-- Connection, Org Metadata, and API Test now use tabs in one card.
-- Generated Query is hidden unless debug mode is enabled.
-- Select Page is hidden when no results exist.
-- Pagination controls are hidden when there is only one page.
-- The confusing “More results may exist” message was removed.
-- Confirmation CSV columns are now:
-  - timestamp
-  - email_removed
-  - response_header_request_id
-  - response
-
+```text
+timestamp
+email_removed
+response_header_request_id
+response
+```
 
 ---
 
-## Phase 3.7.3 Notes
+# UI Standards
 
-### Bounce Manager UI Fix
+MOT follows a professional enterprise visual style.
 
-- `Select page` has been renamed to `Select all`.
-- The result toolbar is hidden before a search is performed.
-- Pagination controls are hidden before a search is performed.
-- Previous/Next actions now do nothing when there are no results.
+Colors:
 
+```text
+Black
+White
+Gray
+```
+
+No vendor-specific branding colors.
 
 ---
 
-## Phase 3.8 Notes
+## Standard Button Spacing
 
-### Deferred State Support
-
-MOT v1 now explicitly searches for both email delivery states:
-
-```text
-eventType eq "system.email.delivery" and outcome.result eq "FAILURE"
-eventType eq "system.email.delivery" and outcome.result eq "DEFERRED"
+```css
+.mot-button-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
 ```
-
-The Bounce Email Manager merges both result sets and displays:
-
-```text
-Bounce
-Deferred
-```
-
-The results table header was updated from `Reason` to `State`.
-
-### Why This Was Needed
-
-Deferred email events may appear as:
-
-```text
-outcome.result = DEFERRED
-outcome.reason = deferred
-```
-
-These events are not returned when filtering only on:
-
-```text
-outcome.result eq "FAILURE"
-```
-
 
 ---
 
-## Phase 3.8.4 Notes
-
-### CSV Helper Scope Fix
-
-Verified that all CSV helpers exist and are defined before use:
-
-```text
-csvEscape
-downloadTextFile
-getResponseRequestId
-createBounceRemovalConfirmationCsv
-buildRemovalAuditRow
-```
-
-Both CSV flows now use shared helpers:
-
-```text
-Bounce search export
-Bounce removal confirmation export
-```
-
-A JavaScript syntax check was performed before packaging.
-
+# Release Notes
 
 ---
 
-## Phase 3.8.5 Notes
+## v0.3.9rc1
 
-### Confirmation Dialog and Download Helper Fix
+### New Features
 
-- Fixed removal confirmation prompt so selected emails display on separate lines.
-- Restored `showRemovalConfirmationDownload()` in the correct scope.
-- Verified JavaScript syntax before packaging.
+#### Debug Mode
 
+Added:
 
----
+* Settings panel
+* Gear icon
+* Persistent debug state
 
-## Phase 3.8.6 Notes
+#### MOT Branding
 
-### CSV Line Break and Debug Cleanup
+Added:
 
-- Fixed removal confirmation CSV so exported rows use real CSV line breaks.
-- Hidden detailed removal error output from the normal UI.
-- Detailed per-email removal responses remain available in the confirmation CSV.
-- The bottom error/debug output is now hidden behind future Debug Mode behavior.
-
+* MOT badge
+* Updated header styling
 
 ---
 
-## v0.3.9 Notes
+### Bounce Email Manager Improvements
 
-### Debug Mode
+Added:
 
-Added a gear icon in the MOT header that opens a small Settings panel.
+* Deferred email support
+* Multi-select removal
+* Per-email audit tracking
+* Improved CSV exports
 
-Settings currently include:
+---
+
+### UI Improvements
+
+Added:
+
+* Internal panel scrolling
+* Better handling for 1440x900 displays
+* Improved minimized layout
+* Better pagination controls
+
+---
+
+### Fixes
+
+Resolved:
+
+* Header disappearing during long searches
+* Pagination controls showing before results
+* CSV formatting issues
+* Helper scope issues
+* Confirmation dialog formatting
+* Removal audit export problems
+
+---
+
+## v0.3.8
+
+Introduced:
+
+* Bounce Email Manager
+* Deferred email support
+* Removal confirmation CSV
+* Tenant metadata
+* API session validation
+
+---
+
+# Phase 4 Roadmap
+
+Planned focus:
+
+## Bounce Removal History
+
+Using:
 
 ```text
-Enable Debug Mode
+system.email.bounce.removal
 ```
 
-When Debug Mode is enabled, MOT shows debug-only sections such as:
-
-- Raw organization metadata
-- Generated System Log queries
-- Hidden debug/error detail areas
-
-Debug state is persisted in local storage.
-
-### MOT Badge
-
-Added a small white/gray-on-black square `MOT` badge in the header to give the extension a cleaner product identity while keeping the enterprise visual style.
-
-### Footer
-
-Footer updated to:
+Potential fields:
 
 ```text
-Phase 3 v0.3.9: Stable
+Timestamp
+Actor
+Email
+Result
+Request ID
 ```
-
 
 ---
 
-## v0.3.9rc1 Notes
+## Planned Features
 
-### Layout Fixes
+* Removal History
+* Removal Verification
+* Audit Timeline
+* CSV Export
+* System Log Correlation
 
-- Fixed panel scrolling so the MOT header remains visible while long result lists scroll inside the panel body.
-- Added a max-height based on viewport height for 1440x900 and smaller screens.
-- Fixed minimized layout so `MOT v1` no longer sits behind the settings button.
-- In minimized mode, the Top and Minimize controls are hidden to preserve space; Settings and Close remain available.
+---
+
+# Future Tool Ideas
+
+Potential MOT modules:
+
+* Rate Limit Inspector
+* User Lookup
+* Group Membership Analysis
+* Application Assignment Analysis
+* Org Metadata Collector
+* System Log Query Builder
+* Splunk Query Generator
+* HAR Analysis Helper
+* Custom Domain Validator
+
+---
+
+# Security
+
+MOT does not:
+
+* Store credentials
+* Store API tokens
+* Send tenant data externally
+
+All actions execute using the authenticated administrator session.
+
+---
+
+# Project Status
+
+```text
+Phase 3
+Version: v0.3.9rc1
+Status: Stable Release Candidate
+```
+
+MOT = Melo Operations Toolkit
