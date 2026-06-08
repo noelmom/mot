@@ -1,7 +1,16 @@
-Copyright © 2026 Noelmo Melo
-
-MOT v1 (Melo Operations Toolkit)
+Copyright (c) 2026 Noelmo Melo
 
 All rights reserved.
 
-Unauthorized redistribution, resale, modification, or reuse of this software is prohibited without written permission from the copyright holder.
+This source code is provided for reference and educational purposes only.
+
+You may view, fork, and submit suggestions or pull requests to this repository.
+You may not:
+
+* Redistribute this software
+* Sell this software
+* Publish modified versions of this software
+* Rebrand this software
+* Use this software for commercial purposes without written permission
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
