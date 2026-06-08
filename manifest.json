@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MOT v1",
-  "description": "Melo Operations Toolkit v1 - professional admin operations utilities.",
-  "version": "0.3.9",
+  "description": "Melo Operations Toolkit for Okta administrators.",
+  "version": "1.0.0",
   "permissions": [
     "storage"
   ],
@@ -36,7 +36,12 @@
   },
   "action": {
     "default_title": "MOT v1",
-    "default_popup": "popup/popup.html"
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
   },
   "web_accessible_resources": [
     {
@@ -51,5 +56,10 @@
         "https://*.okta.mil/*"
       ]
     }
-  ]
+  ],
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  }
 }

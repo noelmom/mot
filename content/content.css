@@ -587,3 +587,25 @@
     top: 12px;
   }
 }
+
+
+.mot-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mot-footer a {
+  color: #cfcfcf;
+  text-decoration: underline;
+}
+
+.mot-footer a:hover {
+  color: #ffffff;
+}
+
+.mot-footer-separator {
+  color: #666666;
+}

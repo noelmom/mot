@@ -831,7 +831,7 @@ ${decodeURIComponent(deferredUrl)}`
 
     container.innerHTML = `
       <div class="mot-confirmation-box">
-        <div>Selected emails removed from bounce list.</div>
+        <div>Bounce emails removal request complete.</div>
         <button class="mot-small-button" type="button" data-mot-action="download-removal-confirmation">
           Download confirmation CSV
         </button>
@@ -1191,7 +1191,9 @@ ${decodeURIComponent(deferredUrl)}`
         </div>
 
         <div class="mot-footer">
-          Phase 3 v0.3.9rc1
+          <span>MOT v1.0.0</span>
+          <span class="mot-footer-separator">•</span>
+          <a href="https://noelmom.github.io/" target="_blank" rel="noreferrer">Melo made it.</a>
         </div>
       </div>
     `;

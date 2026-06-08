@@ -1,43 +1,68 @@
-# MOT - Melo Operations Toolkit 
+# MOT v1 — Melo Operations Toolkit
 
-A lightweight browser extension that provides operational tools directly inside the Okta Admin Console.
+MOT v1 is a lightweight browser extension that provides operational tools directly inside the Okta Admin Console.
 
-MOT is designed to reduce the need for external scripts, Postman collections, browser bookmarks, and one-off utilities by bringing commonly used administrative workflows directly into the authenticated admin experience.
-
----
-
-# Current Status
+## Current Release
 
 ```text
-Version: v0.3.9rc1
-Status: Stable Release Candidate
+v1.0.0
 ```
 
-Maintainer:
+## Current Feature
+
+### Bounce Email Manager
+
+MOT v1 helps administrators:
+
+- Search bounced email delivery events
+- Search deferred email delivery events
+- Remove selected email addresses from the bounce list
+- Export search results to CSV
+- Export per-email removal confirmation to CSV
+- View tenant metadata
+- Validate admin API session access
+
+## Project Page
 
 ```text
-Noelmo Melo
+https://noelmom.github.io/melo.github.io/mot-v1/
 ```
 
----
+## Download
 
-# Project Goals
+Check under releases.
 
-MOT follows a few core principles:
+## Support
 
-* No API tokens required
-* No credential storage
-* No external telemetry
-* No tenant data sent to third-party services
-* Use the current authenticated admin session
-* Keep the interface professional and lightweight
-* Build tools administrators actually use daily
+- Bug Report: https://forms.gle/41a3QX4bXD2C4ikC6
+- Feature Request: https://forms.gle/KUsk1PZ3D2YwDsmU6
+- Contact / Support: https://forms.gle/5pp1ZzU6zP5gYvBx9
 
----
+## Security
 
-# Supported Platforms
+MOT does not transmit tenant data outside of the browser.
 
-Current support:
+MOT does not:
+
+- Store credentials
+- Store API tokens
+- Send tenant data to external services
+- Send logs, metadata, search results, or CSV exports to a backend
+
+All searches, processing, exports, and bounce removal operations are performed locally using the authenticated administrator browser session.
+
+## Installation
+
+1. Download the latest MOT v1 ZIP package.
+2. Extract the ZIP file.
+3. Open `chrome://extensions` or `edge://extensions`.
+4. Enable Developer Mode.
+5. Click **Load unpacked**.
+6. Select the extracted MOT folder.
+7. Log in to the Okta Admin Console.
+8. MOT opens automatically on supported admin URLs.
+
+## Supported Admin Domains
 
 ```text
 *.okta.com
@@ -47,346 +72,39 @@ Current support:
 *.okta.mil
 ```
 
-MOT only injects into Okta Admin Dashboard pages.
+## Release Notes
 
-Examples:
+### v1.0.0
 
-```text
-tenant-admin.okta.com
-tenant-admin.oktapreview.com
-tenant-admin.okta-emea.com
-```
+Initial public release.
 
----
+Includes:
 
-# Architecture
+- Bounce Email Manager
+- Bounce and deferred email search
+- Bounce removal
+- Per-email removal audit CSV
+- Search results CSV export
+- Tenant metadata detection
+- Custom domain detection
+- API session validation
+- Debug Mode toggle
+- MOT extension popup
+- MOT toolbar icons
+- Project page/support links
 
-MOT uses a hybrid browser-extension architecture.
+## Roadmap
 
-## Content Script
+Planned future features:
 
-Responsible for:
+- Bounce Removal History using `system.email.bounce.removal`
+- Removal verification from System Log
+- Rate Limit Inspector
+- User Lookup Helper
+- System Log Query Builder
 
-* Rendering UI
-* Handling user interactions
-* Displaying results
-* Managing panel state
+## Copyright
 
-## Background Service Worker
+Copyright © 2026 Noelmo Melo.
 
-Responsible for:
-
-* API reads
-* System Log retrieval
-* Pagination handling
-
-## Page Bridge
-
-Responsible for:
-
-* Same-origin admin POST requests
-* XSRF-protected operations
-* Bounce removal requests
-
-The page bridge executes in page context and avoids CSP restrictions.
-
----
-
-
-# MOT Panel
-
-The MOT panel supports:
-
-* Minimize
-* Close
-* Move Top / Bottom
-* Persistent Position
-* Persistent Minimized State
-
----
-
-## Header Controls
-
-```text
-[MOT] MOT v1
-
-⚙ Settings
-Top / Bottom
-Minimize
-Close
-```
-
----
-
-# Settings
-
-Accessed through the gear icon.
-
-Current settings:
-
-```text
-Enable Debug Mode
-```
-
-Debug Mode is stored locally and persists across sessions.
-
----
-
-# Debug Mode
-
-When enabled, MOT exposes:
-
-* Raw Organization Metadata
-* Generated System Log Queries
-* Internal Debug Information
-* Additional Troubleshooting Data
-
-Debug content is hidden by default.
-
----
-
-# Bounce Email Manager
-
-The Bounce Email Manager provides visibility into email delivery failures and allows administrators to remove addresses from the bounce list.
-
----
-
-## Search Ranges
-
-```text
-24 Hours
-7 Days
-30 Days
-90 Days
-```
-
----
-
-## Supported States
-
-### Bounce
-
-Detected from:
-
-```text
-eventType = system.email.delivery
-outcome.result = FAILURE
-```
-
-Displayed as:
-
-```text
-Bounce
-```
-
----
-
-### Deferred
-
-Detected from:
-
-```text
-eventType = system.email.delivery
-outcome.result = DEFERRED
-```
-
-Displayed as:
-
-```text
-Deferred
-```
-
-MOT performs separate searches for FAILURE and DEFERRED events and merges the results into a single view.
-
----
-
-# Results Table
-
-Displays:
-
-```text
-Email
-State
-Count
-Last Seen
-```
-
-Example:
-
-```text
-john@example.com
-Bounce
-12
-2026-06-07
-```
-
----
-
-# Pagination
-
-Results are paginated.
-
-Current page size:
-
-```text
-25 rows
-```
-
-Pagination controls remain hidden until results are available.
-
----
-
-# Bounce Removal
-
-Uses:
-
-```http
-POST /api/v1/org/email/bounces/remove-list
-```
-
-Example request:
-
-```json
-{
-  "emailAddresses": [
-    "user@example.com"
-  ]
-}
-```
-
-Okta documentation:
-```
-https://support.okta.com/help/s/article/How-to-unblock-an-email-address-from-the-Okta-email-address-bounce-list-via-API
-```
-
-Supports:
-
-* Single email removal
-* Multi-select removal
-* Bulk removal
-
----
-
-# Removal Workflow
-
-Administrators:
-
-1. Search
-2. Select addresses
-3. Click Remove
-4. Confirm operation
-5. Download confirmation CSV
-
----
-
-## Status Messages
-
-Success:
-
-```text
-Bounce removal request completed.
-```
-
-Mixed results:
-
-```text
-Removal completed: X successful, Y errors.
-```
-
-Failure:
-
-```text
-Bounce removal failed.
-```
-
----
-
-# Removal Confirmation CSV
-
-Generated after removal operations.
-
-Columns:
-
-```text
-timestamp
-email_removed
-response_header_request_id
-response
-```
-
-Example:
-
-```text
-2026-06-07T18:22:11Z
-user@example.com
-YT2h7A8j...
-200 successful
-```
-
-Each email is processed independently so every row contains its own:
-
-* Timestamp
-* Request ID
-* Response
-
----
-
-# CSV Exports
-
-Current exports:
-
-### Bounce Search Results
-
-```text
-email
-state
-count
-lastSeen
-eventUuids
-```
-
-### Bounce Removal Confirmation
-
-```text
-timestamp
-email_removed
-response_header_request_id
-response
-```
-
----
-
-## v0.3.8
-
-Introduced:
-
-* Bounce Email Manager
-* Deferred email support
-* Removal confirmation CSV
-* Tenant metadata
-* API session validation
-
----
-
-# Security
-
-MOT does not:
-
-* Store credentials
-* Store API tokens
-* Send tenant data externally
-
-All actions execute using the authenticated administrator session.
-
----
-
-# Project Status
-
-```text
-Phase 3
-Version: v0.3.9rc1
-Status: Stable Release Candidate
-```
-
-MOT = Melo Operations Toolkit
-https://noelmom.github.io/
+All rights reserved.
