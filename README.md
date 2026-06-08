@@ -30,7 +30,11 @@ https://noelmom.github.io/melo.github.io/mot-v1/
 
 ## Download
 
-Check under releases.
+https://github.com/noelmom/mot/releases/tag/v1.0.0
+
+## Screenshots
+
+![MOT Main Interface](docs/screenshot-main.png)
 
 ## Support
 
