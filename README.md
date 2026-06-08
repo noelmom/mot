@@ -24,9 +24,7 @@ MOT v1 helps administrators:
 
 ## Project Page
 
-```text
-https://noelmom.github.io/mot/
-```
+https://github.com/noelmom/mot
 
 ## Download
 
