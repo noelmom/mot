@@ -1,4 +1,4 @@
-# MOT v1 - Melo Operations Toolkit
+# MOT - Melo Operations Toolkit 
 
 A lightweight browser extension that provides operational tools directly inside the Okta Admin Console.
 
@@ -9,7 +9,6 @@ MOT is designed to reduce the need for external scripts, Postman collections, br
 # Current Status
 
 ```text
-Phase 3
 Version: v0.3.9rc1
 Status: Stable Release Candidate
 ```
@@ -44,11 +43,6 @@ Current support:
 *.okta.com
 *.oktapreview.com
 *.okta-emea.com
-```
-
-Planned support:
-
-```text
 *.okta-gov.com
 *.okta.mil
 ```
@@ -98,58 +92,6 @@ The page bridge executes in page context and avoids CSP restrictions.
 
 ---
 
-# Tenant Intelligence
-
-MOT automatically identifies tenant information using:
-
-```http
-GET /.well-known/okta-organization
-```
-
-Displayed information:
-
-* Admin URL
-* Tenant URL
-* Cell
-* Pipeline
-* Custom Domains
-
----
-
-## Example
-
-Admin URL:
-
-```text
-https://integrator-4594550-admin.okta.com
-```
-
-Tenant URL:
-
-```text
-https://integrator-4594550.okta.com
-```
-
-Pipeline:
-
-```text
-OIE
-```
-
-Cell:
-
-```text
-OK14
-```
-
-Custom Domains:
-
-```text
-oie.company.com
-login.company.com
-```
-
----
 
 # MOT Panel
 
@@ -312,6 +254,11 @@ Example request:
 }
 ```
 
+Okta documentation:
+```
+https://support.okta.com/help/s/article/How-to-unblock-an-email-address-from-the-Okta-email-address-bounce-list-via-API
+```
+
 Supports:
 
 * Single email removal
@@ -409,96 +356,6 @@ response
 
 ---
 
-# UI Standards
-
-MOT follows a professional enterprise visual style.
-
-Colors:
-
-```text
-Black
-White
-Gray
-```
-
-No vendor-specific branding colors.
-
----
-
-## Standard Button Spacing
-
-```css
-.mot-button-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 12px;
-  margin-bottom: 12px;
-}
-```
-
----
-
-# Release Notes
-
----
-
-## v0.3.9rc1
-
-### New Features
-
-#### Debug Mode
-
-Added:
-
-* Settings panel
-* Gear icon
-* Persistent debug state
-
-#### MOT Branding
-
-Added:
-
-* MOT badge
-* Updated header styling
-
----
-
-### Bounce Email Manager Improvements
-
-Added:
-
-* Deferred email support
-* Multi-select removal
-* Per-email audit tracking
-* Improved CSV exports
-
----
-
-### UI Improvements
-
-Added:
-
-* Internal panel scrolling
-* Better handling for 1440x900 displays
-* Improved minimized layout
-* Better pagination controls
-
----
-
-### Fixes
-
-Resolved:
-
-* Header disappearing during long searches
-* Pagination controls showing before results
-* CSV formatting issues
-* Helper scope issues
-* Confirmation dialog formatting
-* Removal audit export problems
-
----
-
 ## v0.3.8
 
 Introduced:
@@ -508,56 +365,6 @@ Introduced:
 * Removal confirmation CSV
 * Tenant metadata
 * API session validation
-
----
-
-# Phase 4 Roadmap
-
-Planned focus:
-
-## Bounce Removal History
-
-Using:
-
-```text
-system.email.bounce.removal
-```
-
-Potential fields:
-
-```text
-Timestamp
-Actor
-Email
-Result
-Request ID
-```
-
----
-
-## Planned Features
-
-* Removal History
-* Removal Verification
-* Audit Timeline
-* CSV Export
-* System Log Correlation
-
----
-
-# Future Tool Ideas
-
-Potential MOT modules:
-
-* Rate Limit Inspector
-* User Lookup
-* Group Membership Analysis
-* Application Assignment Analysis
-* Org Metadata Collector
-* System Log Query Builder
-* Splunk Query Generator
-* HAR Analysis Helper
-* Custom Domain Validator
 
 ---
 
@@ -582,3 +389,4 @@ Status: Stable Release Candidate
 ```
 
 MOT = Melo Operations Toolkit
+https://noelmom.github.io/
