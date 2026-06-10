@@ -30,6 +30,9 @@ https://github.com/noelmom/mot
 
 https://github.com/noelmom/mot/releases/tag/v1.0.0
 
+Chrome/Edge:
+https://chromewebstore.google.com/detail/mot-v1/occkoodcpkleecoccfdacopjokiejlkh
+
 ## Screenshots
 
 ![MOT Main Interface](docs/screenshot-main.png)
@@ -53,7 +56,7 @@ MOT does not:
 
 All searches, processing, exports, and bounce removal operations are performed locally using the authenticated administrator browser session.
 
-## Installation
+## Manual Installation
 
 1. Download the latest MOT v1 ZIP package.
 2. Extract the ZIP file.
