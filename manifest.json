@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Rebound",
   "description": "Okta admin tool to find, review, export, and remove bounced & deferred email addresses from the bounce list in your browser.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "host_permissions": [
     "https://*.okta.com/*",
     "https://*.oktapreview.com/*",

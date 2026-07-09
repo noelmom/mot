@@ -1,1 +1,1 @@
-console.log("Rebound popup loaded - v1.2.0");
+console.log("Rebound popup loaded - v1.2.1");

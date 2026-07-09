@@ -9,7 +9,7 @@ the Okta Admin Console — so affected users can receive email again.
 ## Current Release
 
 ```text
-v1.2.0
+v1.2.1
 ```
 
 ## Features
@@ -57,9 +57,8 @@ https://github.com/noelmom/rebound
 
 ## Support
 
-- Bug Report: https://forms.gle/41a3QX4bXD2C4ikC6
-- Feature Request: https://forms.gle/KUsk1PZ3D2YwDsmU6
-- Contact / Support: https://forms.gle/5pp1ZzU6zP5gYvBx9
+Bugs, feature requests, and questions are handled on GitHub:
+https://github.com/noelmom/rebound/issues
 
 ## Security
 
@@ -111,7 +110,7 @@ locally using the authenticated administrator browser session.
 
 ## Release Notes
 
-### v1.2.0
+### v1.2.1
 
 Rebound release (redesign of MOT v1).
 
@@ -143,8 +142,8 @@ Rebound is an independent tool and is not affiliated with, endorsed by, or
 sponsored by Okta, Inc. "Okta" and related marks are trademarks of Okta, Inc.,
 used here only to describe compatibility.
 
-## Copyright
+## License
+
+Released under the [MIT License](LICENSE).
 
 Copyright © 2026 Noelmo Melo.
-
-All rights reserved.
