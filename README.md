@@ -6,6 +6,10 @@ the Okta Admin Console — so affected users can receive email again.
 
 > Rebound was previously released as **MOT v1**. Same functionality, redesigned UI.
 
+<a href="https://chromewebstore.google.com/detail/rebound/occkoodcpkleecoccfdacopjokiejlkh"><img src="docs/chrome-web-store-badge.png" alt="Available in the Chrome Web Store" width="280"></a>
+
+<sub>Also works on Microsoft Edge and other Chromium browsers.</sub>
+
 ## Current Release
 
 ```text
@@ -42,7 +46,7 @@ https://github.com/noelmom/rebound
 
 ## Download
 
-- **Chrome / Edge Web Store:** _(link once published)_
+- **Chrome / Edge Web Store:** https://chromewebstore.google.com/detail/rebound/occkoodcpkleecoccfdacopjokiejlkh
 - **Manual install:** grab the latest `rebound-<version>.zip` from the
   [Releases](https://github.com/noelmom/rebound/releases) page, then follow
   **Manual Installation** below.
