@@ -1,1 +1,1 @@
-console.log("MOT v1 popup loaded - v1.0.0");
+console.log("Rebound popup loaded - v1.2.0");

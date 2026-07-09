@@ -1,9 +1,9 @@
 (() => {
-  if (window.__MOT_V1_PAGE_BRIDGE__) {
+  if (window.__REBOUND_PAGE_BRIDGE__) {
     return;
   }
 
-  window.__MOT_V1_PAGE_BRIDGE__ = true;
+  window.__REBOUND_PAGE_BRIDGE__ = true;
 
   function getPageXsrfToken() {
     const xsrfElement = document.querySelector("#_xsrfToken");
@@ -30,10 +30,6 @@
     return "";
   }
 
-  function getCurrentActor() {
-    return "Current admin session";
-  }
-
   function headersToObject(headers) {
     const result = {};
     headers.forEach((value, key) => {
@@ -46,7 +42,7 @@
     const headers = {
       Accept: "application/json",
       "Content-Type": "application/json",
-      "X-Okta-User-Agent-Extended": "MOT-v1",
+      "X-Okta-User-Agent-Extended": "Rebound",
       ...requestHeaders
     };
 
@@ -59,7 +55,7 @@
     return headers;
   }
 
-  window.addEventListener("MOT_V1_PAGE_FETCH_REQUEST", async (event) => {
+  window.addEventListener("REBOUND_PAGE_FETCH_REQUEST", async (event) => {
     const detail = event.detail || {};
     const requestId = detail.requestId;
 
@@ -82,27 +78,23 @@
         }
       }
 
-      window.dispatchEvent(new CustomEvent("MOT_V1_PAGE_FETCH_RESPONSE", {
+      window.dispatchEvent(new CustomEvent("REBOUND_PAGE_FETCH_RESPONSE", {
         detail: {
           requestId,
           ok: response.ok,
           status: response.status,
           statusText: response.statusText,
-          xsrfFound: Boolean(getPageXsrfToken()),
-          actor: getCurrentActor(),
           headers: headersToObject(response.headers),
           data
         }
       }));
     } catch (error) {
-      window.dispatchEvent(new CustomEvent("MOT_V1_PAGE_FETCH_RESPONSE", {
+      window.dispatchEvent(new CustomEvent("REBOUND_PAGE_FETCH_RESPONSE", {
         detail: {
           requestId,
           ok: false,
           status: 0,
           statusText: "Page context fetch failed",
-          xsrfFound: Boolean(getPageXsrfToken()),
-          actor: getCurrentActor(),
           headers: {},
           data: { error: error.message }
         }
@@ -110,7 +102,5 @@
     }
   });
 
-  window.dispatchEvent(new CustomEvent("MOT_V1_PAGE_BRIDGE_READY", {
-    detail: { xsrfFound: Boolean(getPageXsrfToken()) }
-  }));
+  window.dispatchEvent(new CustomEvent("REBOUND_PAGE_BRIDGE_READY"));
 })();

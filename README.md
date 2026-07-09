@@ -1,41 +1,59 @@
-# MOT v1 — Melo Operations Toolkit
+# Rebound — Bounce List Manager for Okta
 
-MOT v1 is a lightweight browser extension that provides operational tools directly inside the Okta Admin Console.
+Rebound is a lightweight browser extension that helps Okta administrators clear
+bounced and deferred email addresses off the suppression list — directly inside
+the Okta Admin Console — so affected users can receive email again.
+
+> Rebound was previously released as **MOT v1**. Same functionality, redesigned UI.
 
 ## Current Release
 
 ```text
-v1.0.0
+v1.2.0
 ```
 
-## Current Feature
+## Features
 
-### Bounce Email Manager
-
-MOT v1 helps administrators:
+### Bounce List Manager
 
 - Search bounced email delivery events
 - Search deferred email delivery events
-- Remove selected email addresses from the bounce list
+- Filter results by address and by state (Bounce / Deferred)
+- Remove selected addresses from the bounce suppression list
 - Export search results to CSV
-- Export per-email removal confirmation to CSV
-- View tenant metadata
-- Validate admin API session access
+- Per-removal audit CSV (one row per address, with response request IDs)
+- Tenant metadata + custom-domain detection
+- API session validation ("Session valid" indicator)
+- Debug Mode toggle
+
+## The three views
+
+- **Results & selection** — big count of suppressed addresses for the selected
+  time window, an address filter, `24h / 7d / 30d / 90d` range and
+  `All / Bounce / Deferred` state controls, and a selectable results list.
+- **Removed + audit** — after a removal: per-address confirmation and a
+  downloadable audit CSV (`rebound-removal-YYYY-MM-DD.csv`).
+- **All clear** — friendly empty state when a search returns nothing, with the
+  range control so you can widen the window and re-run.
 
 ## Project Page
 
-https://github.com/noelmom/mot
+https://github.com/noelmom/rebound
 
 ## Download
 
-https://github.com/noelmom/mot/releases/tag/v1.0.0
-
-Chrome/Edge:
-https://chromewebstore.google.com/detail/mot-v1/occkoodcpkleecoccfdacopjokiejlkh
+- **Chrome / Edge Web Store:** _(link once published)_
+- **Manual install:** grab the latest `rebound-<version>.zip` from the
+  [Releases](https://github.com/noelmom/rebound/releases) page, then follow
+  **Manual Installation** below.
 
 ## Screenshots
 
-![MOT Main Interface](docs/screenshot-main.png)
+![Find, review, and remove bounced Okta emails](docs/Rebound-screenshot-1-find-review-1280x800.png)
+
+![Removal confirmation with a downloadable audit trail](docs/Rebound-screenshot-2-restore-delivery-1280x800.png)
+
+![Feature overview](docs/Rebound-screenshot-3-features-1280x800.png)
 
 ## Support
 
@@ -45,27 +63,41 @@ https://chromewebstore.google.com/detail/mot-v1/occkoodcpkleecoccfdacopjokiejlkh
 
 ## Security
 
-MOT does not transmit tenant data outside of the browser.
+_This section also serves as Rebound's privacy policy._
 
-MOT does not:
+Rebound keeps tenant data inside your browser. It collects **no** personal
+information, uses **no** analytics or trackers, and sends nothing to any
+external server or third party.
 
-- Store credentials
-- Store API tokens
-- Send tenant data to external services
-- Send logs, metadata, search results, or CSV exports to a backend
+**What Rebound accesses.** Using your already-authenticated Okta admin session,
+Rebound reads bounced and deferred email delivery events from the Okta System
+Log and, when you choose, submits bounce-list removals. All of this happens
+directly between your browser and your own Okta tenant.
 
-All searches, processing, exports, and bounce removal operations are performed locally using the authenticated administrator browser session.
+**What Rebound does NOT do:**
+
+- Store credentials or API tokens
+- Collect, sell, or share personal information
+- Send tenant data, logs, metadata, search results, or CSV exports to a backend
+- Use analytics, tracking, or third-party services
+
+**Local storage.** Rebound saves only a few UI preferences (panel position,
+minimized state, Debug Mode) locally in your browser. No account or tenant data
+is stored.
+
+All searches, processing, exports, and bounce-removal operations are performed
+locally using the authenticated administrator browser session.
 
 ## Manual Installation
 
-1. Download the latest MOT v1 ZIP package.
+1. Download the latest Rebound ZIP package.
 2. Extract the ZIP file.
 3. Open `chrome://extensions` or `edge://extensions`.
 4. Enable Developer Mode.
 5. Click **Load unpacked**.
-6. Select the extracted MOT folder.
+6. Select the extracted Rebound folder.
 7. Log in to the Okta Admin Console.
-8. MOT opens automatically on supported admin URLs.
+8. Rebound opens automatically on supported admin URLs.
 
 ## Supported Admin Domains
 
@@ -79,24 +111,21 @@ All searches, processing, exports, and bounce removal operations are performed l
 
 ## Release Notes
 
-### v1.0.0
+### v1.2.0
 
-Initial public release.
+Rebound release (redesign of MOT v1).
 
 Includes:
 
-- Bounce Email Manager
+- Bounce List Manager
 - Bounce and deferred email search
-- Bounce removal
-- Per-email removal audit CSV
+- Address + state filtering
+- Bounce removal with per-address audit CSV
 - Search results CSV export
-- Tenant metadata detection
-- Custom domain detection
+- Tenant metadata + custom domain detection
 - API session validation
 - Debug Mode toggle
-- MOT extension popup
-- MOT toolbar icons
-- Project page/support links
+- Rebound extension popup
 
 ## Roadmap
 
@@ -107,6 +136,12 @@ Planned future features:
 - Rate Limit Inspector
 - User Lookup Helper
 - System Log Query Builder
+
+## Disclaimer
+
+Rebound is an independent tool and is not affiliated with, endorsed by, or
+sponsored by Okta, Inc. "Okta" and related marks are trademarks of Okta, Inc.,
+used here only to describe compatibility.
 
 ## Copyright
 

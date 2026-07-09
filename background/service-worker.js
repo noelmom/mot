@@ -1,5 +1,5 @@
 chrome.runtime.onInstalled.addListener(() => {
-  console.log("MOT v1 installed");
+  console.log("Rebound installed");
 });
 
 function headersToObject(headers) {
@@ -59,12 +59,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  if (message.type === "MOT_FETCH_JSON") {
+  if (message.type === "REBOUND_FETCH_JSON") {
     handleFetchMessage(message, sendResponse, false);
     return true;
   }
 
-  if (message.type === "MOT_FETCH_WITH_HEADERS") {
+  if (message.type === "REBOUND_FETCH_WITH_HEADERS") {
     handleFetchMessage(message, sendResponse, true);
     return true;
   }

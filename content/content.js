@@ -1,55 +1,52 @@
 (() => {
-  const PANEL_ID = "mot-v1-panel";
+  const PANEL_ID = "rebound-panel";
   const DEBUG_MODE_DEFAULT = false;
 
   const LOG_FETCH_LIMIT = 200;
   const MAX_LOG_PAGES = 5;
-  const UI_PAGE_SIZE = 25;
 
   const IGNORED_EMAILS = new Set([
     "system@okta.com"
   ]);
 
   const STORAGE_KEYS = {
-    minimized: "motMinimized",
-    position: "motPosition",
-    debugEnabled: "motDebugEnabled"
+    minimized: "reboundMinimized",
+    position: "reboundPosition",
+    debugEnabled: "reboundDebugEnabled"
   };
 
   const ADMIN_HOST_PATTERNS = [
-    {
-      adminSuffix: "-admin.okta.com",
-      tenantSuffix: ".okta.com",
-      platform: "Commercial"
-    },
-    {
-      adminSuffix: "-admin.oktapreview.com",
-      tenantSuffix: ".oktapreview.com",
-      platform: "Preview"
-    },
-    {
-      adminSuffix: "-admin.okta-emea.com",
-      tenantSuffix: ".okta-emea.com",
-      platform: "EMEA"
-    },
-    {
-      adminSuffix: "-admin.okta-gov.com",
-      tenantSuffix: ".okta-gov.com",
-      platform: "Government"
-    },
-    {
-      adminSuffix: "-admin.okta.mil",
-      tenantSuffix: ".okta.mil",
-      platform: "Military"
-    }
+    { adminSuffix: "-admin.okta.com", tenantSuffix: ".okta.com", platform: "Commercial" },
+    { adminSuffix: "-admin.oktapreview.com", tenantSuffix: ".oktapreview.com", platform: "Preview" },
+    { adminSuffix: "-admin.okta-emea.com", tenantSuffix: ".okta-emea.com", platform: "EMEA" },
+    { adminSuffix: "-admin.okta-gov.com", tenantSuffix: ".okta-gov.com", platform: "Government" },
+    { adminSuffix: "-admin.okta.mil", tenantSuffix: ".okta.mil", platform: "Military" }
   ];
 
-  let bounceResults = [];
-  let bounceCurrentPage = 1;
-  let processedLogEvents = 0;
-  let lastRemovalConfirmationCsv = "";
-  let lastRemovalConfirmationFilename = "";
+  const RANGE_OPTIONS = [
+    { days: 1, label: "24h" },
+    { days: 7, label: "7d" },
+    { days: 30, label: "30d" },
+    { days: 90, label: "90d" }
+  ];
 
+  const STATE_FILTERS = ["All", "Bounce", "Deferred"];
+
+  // ---- runtime state ----
+  let bounceResults = [];
+  const selectedEmails = new Set();
+  let currentDays = 1;
+  let currentStateFilter = "All";
+  let currentTextFilter = "";
+  let currentView = "results"; // results | removed | clear
+  let hasSearched = false;
+  let processedLogEvents = 0;
+  let lastCheckedLabel = "";
+  let lastRemoval = null; // { rows, csv, filename, successCount, errorCount }
+
+  // ---------------------------------------------------------------------------
+  // Host / tenant helpers
+  // ---------------------------------------------------------------------------
   function getAdminHost() {
     return window.location.hostname.toLowerCase();
   }
@@ -72,11 +69,7 @@
 
   function getTenantHostFromAdminHost(host = getAdminHost()) {
     const pattern = getAdminPattern(host);
-
-    if (!pattern) {
-      return null;
-    }
-
+    if (!pattern) return null;
     return host.replace(pattern.adminSuffix, pattern.tenantSuffix);
   }
 
@@ -90,6 +83,9 @@
     return pattern ? pattern.platform : "Unknown";
   }
 
+  // ---------------------------------------------------------------------------
+  // Storage / debug
+  // ---------------------------------------------------------------------------
   function getStoredValue(key, fallback) {
     try {
       return localStorage.getItem(key) || fallback;
@@ -106,7 +102,6 @@
     }
   }
 
-
   function isDebugEnabled() {
     return getStoredValue(STORAGE_KEYS.debugEnabled, String(DEBUG_MODE_DEFAULT)) === "true";
   }
@@ -117,41 +112,24 @@
 
   function applyDebugState(panel) {
     const enabled = isDebugEnabled();
+    panel.classList.toggle("rbd-debug-enabled", enabled);
 
-    panel.classList.toggle("mot-debug-enabled", enabled);
+    const checkbox = panel.querySelector("[data-rbd-debug-toggle]");
+    if (checkbox) checkbox.checked = enabled;
+  }
 
-    const checkbox = panel.querySelector("[data-mot-debug-toggle]");
-    if (checkbox) {
-      checkbox.checked = enabled;
-    }
-
-    const debugState = panel.querySelector("[data-mot-debug-state]");
-    if (debugState) {
-      debugState.textContent = enabled ? "Enabled" : "Disabled";
-    }
+  // ---------------------------------------------------------------------------
+  // Small DOM utils
+  // ---------------------------------------------------------------------------
+  function esc(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[ch]));
   }
 
   function setText(selector, value) {
     const el = document.querySelector(selector);
-    if (el) {
-      el.textContent = value || "Unavailable";
-    }
-  }
-
-  function clearText(selector) {
-    const el = document.querySelector(selector);
-    if (el) {
-      el.textContent = "";
-    }
-  }
-
-  function setStatus(selector, type, text) {
-    const el = document.querySelector(selector);
-    if (!el) return;
-
-    el.classList.remove("mot-status-ok", "mot-status-warn", "mot-status-error", "mot-status-loading");
-    el.classList.add(`mot-status-${type}`);
-    el.querySelector(".mot-status-text").textContent = text;
+    if (el) el.textContent = value || "Unavailable";
   }
 
   function safeJsonStringify(value) {
@@ -162,23 +140,22 @@
     }
   }
 
+  function timeLabel(date = new Date()) {
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Org metadata parsing
+  // ---------------------------------------------------------------------------
   function normalizeLinksToArray(linkValue) {
     if (!linkValue) return [];
-
-    if (Array.isArray(linkValue)) {
-      return linkValue;
-    }
-
-    if (typeof linkValue === "object") {
-      return [linkValue];
-    }
-
+    if (Array.isArray(linkValue)) return linkValue;
+    if (typeof linkValue === "object") return [linkValue];
     return [];
   }
 
   function extractCustomDomains(orgInfo) {
     const alternateLinks = normalizeLinksToArray(orgInfo?._links?.alternate);
-
     const domains = alternateLinks
       .map((link) => link?.href)
       .filter(Boolean)
@@ -189,51 +166,40 @@
           return href;
         }
       });
-
     return [...new Set(domains)];
   }
 
   function extractPipeline(orgInfo) {
     const organizationHref = orgInfo?._links?.organization?.href || "";
-
     if (orgInfo?.pipeline) return orgInfo.pipeline;
     if (orgInfo?.pipelineType) return orgInfo.pipelineType;
     if (orgInfo?.engine) return orgInfo.engine;
     if (orgInfo?.identityEngine) return orgInfo.identityEngine;
     if (orgInfo?.oktaPipeline) return orgInfo.oktaPipeline;
-
-    if (organizationHref.toLowerCase().includes("oie")) {
-      return "OIE";
-    }
-
+    if (organizationHref.toLowerCase().includes("oie")) return "OIE";
     return "Review response";
   }
 
   function extractOrgSummary(orgInfo) {
     if (!orgInfo || typeof orgInfo !== "object") {
-      return {
-        cell: "Unavailable",
-        pipeline: "Unavailable",
-        customDomainsText: "Unavailable",
-        customDomainsList: []
-      };
+      return { cell: "Unavailable", pipeline: "Unavailable", customDomainsText: "Unavailable" };
     }
-
     const customDomains = extractCustomDomains(orgInfo);
-
     return {
       cell: orgInfo.cell || "Unavailable",
       pipeline: extractPipeline(orgInfo),
-      customDomainsText: customDomains.length > 0 ? customDomains.join(", ") : "No custom domains",
-      customDomainsList: customDomains
+      customDomainsText: customDomains.length > 0 ? customDomains.join(", ") : "No custom domains"
     };
   }
 
-  function motFetchJson(url, options = {}) {
+  // ---------------------------------------------------------------------------
+  // Fetch helpers (via service worker + page bridge)
+  // ---------------------------------------------------------------------------
+  function rbFetchJson(url, options = {}) {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(
         {
-          type: "MOT_FETCH_JSON",
+          type: "REBOUND_FETCH_JSON",
           url,
           method: options.method || "GET",
           headers: options.headers || {},
@@ -244,162 +210,149 @@
             reject(new Error(chrome.runtime.lastError.message));
             return;
           }
-
           if (!response) {
-            reject(new Error("No response from MOT service worker"));
+            reject(new Error("No response from Rebound service worker"));
             return;
           }
-
           if (!response.ok) {
-            const data = response.data || {};
-            const message =
-              data.errorSummary ||
-              data.error ||
-              data.raw ||
-              response.statusText ||
-              "Request failed";
-
-            reject(new Error(`${response.status} ${response.statusText}: ${message}`));
+            reject(new Error(describeError(response)));
             return;
           }
-
           resolve(response.data);
         }
       );
     });
   }
 
-  async function motPageFetchJson(url, options = {}) {
-    const response = await fetch(url, {
-      credentials: "include",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...(options.headers || {})
-      },
-      ...options
+  function rbFetchWithHeaders(url, options = {}) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        {
+          type: "REBOUND_FETCH_WITH_HEADERS",
+          url,
+          method: options.method || "GET",
+          headers: options.headers || {},
+          body: options.body
+        },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          if (!response) {
+            reject(new Error("No response from Rebound service worker"));
+            return;
+          }
+          if (!response.ok) {
+            reject(new Error(describeError(response)));
+            return;
+          }
+          resolve(response);
+        }
+      );
     });
-
-    const text = await response.text();
-
-    let data = null;
-    if (text) {
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = { raw: text };
-      }
-    }
-
-    if (!response.ok) {
-      const message =
-        data?.errorSummary ||
-        data?.error ||
-        data?.raw ||
-        response.statusText ||
-        "Request failed";
-
-      throw new Error(`${response.status} ${response.statusText}: ${message}`);
-    }
-
-    return data;
   }
 
-  function ensurePageContextBridge() {
-    if (window.__MOT_V1_CONTENT_BRIDGE_REQUESTED__) {
-      return;
-    }
+  function describeError(response) {
+    const data = response.data || {};
+    const message =
+      data.errorSummary || data.error || data.raw || response.statusText || "Request failed";
+    return `${response.status} ${response.statusText}: ${message}`;
+  }
 
-    window.__MOT_V1_CONTENT_BRIDGE_REQUESTED__ = true;
+  // Page-context bridge: needed so the removal POST carries the page XSRF token.
+  let bridgeReady = false;
+  function ensurePageContextBridge() {
+    if (window.__REBOUND_CONTENT_BRIDGE_REQUESTED__) return;
+    window.__REBOUND_CONTENT_BRIDGE_REQUESTED__ = true;
+
+    window.addEventListener("REBOUND_PAGE_BRIDGE_READY", () => {
+      bridgeReady = true;
+    });
 
     const script = document.createElement("script");
-    script.id = "mot-v1-page-bridge";
+    script.id = "rebound-page-bridge";
     script.src = chrome.runtime.getURL("page/page-bridge.js");
     script.onload = () => script.remove();
-
     (document.head || document.documentElement).appendChild(script);
   }
 
-  function motPageContextFetchJson(url, options = {}) {
+  function waitForBridge(timeoutMs = 4000) {
+    if (bridgeReady) return Promise.resolve();
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const check = () => {
+        if (bridgeReady || Date.now() - start > timeoutMs) {
+          resolve();
+        } else {
+          window.setTimeout(check, 50);
+        }
+      };
+      check();
+    });
+  }
+
+  async function rbPageContextFetchJson(url, options = {}) {
     ensurePageContextBridge();
+    await waitForBridge();
 
     return new Promise((resolve, reject) => {
-      const requestId = `mot-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const requestId = `rebound-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
       const timeout = window.setTimeout(() => {
-        window.removeEventListener("MOT_V1_PAGE_FETCH_RESPONSE", onResponse);
+        window.removeEventListener("REBOUND_PAGE_FETCH_RESPONSE", onResponse);
         reject(new Error("Page context fetch timed out. Bridge may not have loaded."));
       }, 30000);
 
       function cleanup() {
         window.clearTimeout(timeout);
-        window.removeEventListener("MOT_V1_PAGE_FETCH_RESPONSE", onResponse);
+        window.removeEventListener("REBOUND_PAGE_FETCH_RESPONSE", onResponse);
       }
 
       function onResponse(event) {
         const response = event.detail || {};
-
-        if (response.requestId !== requestId) {
-          return;
-        }
-
+        if (response.requestId !== requestId) return;
         cleanup();
-
         if (!response.ok) {
-          const data = response.data || {};
-          const message =
-            data.errorSummary ||
-            data.error ||
-            data.raw ||
-            response.statusText ||
-            "Request failed";
-
-          reject(new Error(`${response.status} ${response.statusText}: ${message}`));
+          reject(new Error(describeError(response)));
           return;
         }
-
         resolve(response);
       }
 
-      window.addEventListener("MOT_V1_PAGE_FETCH_RESPONSE", onResponse);
-
-      window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent("MOT_V1_PAGE_FETCH_REQUEST", {
-          detail: {
-            requestId,
-            url,
-            method: options.method || "GET",
-            headers: options.headers || {},
-            body: options.body
-          }
-        }));
-      }, 250);
+      window.addEventListener("REBOUND_PAGE_FETCH_RESPONSE", onResponse);
+      window.dispatchEvent(new CustomEvent("REBOUND_PAGE_FETCH_REQUEST", {
+        detail: {
+          requestId,
+          url,
+          method: options.method || "GET",
+          headers: options.headers || {},
+          body: options.body
+        }
+      }));
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Log processing
+  // ---------------------------------------------------------------------------
   function getSinceISOString(days) {
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   }
 
   function getNestedValues(value, results = []) {
-    if (value === null || value === undefined) {
-      return results;
-    }
-
+    if (value === null || value === undefined) return results;
     if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
       results.push(String(value));
       return results;
     }
-
     if (Array.isArray(value)) {
       value.forEach((item) => getNestedValues(item, results));
       return results;
     }
-
     if (typeof value === "object") {
       Object.values(value).forEach((item) => getNestedValues(item, results));
     }
-
     return results;
   }
 
@@ -407,42 +360,31 @@
     const values = getNestedValues(event);
     const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
     const emails = new Set();
-
     values.forEach((value) => {
       const matches = value.match(emailRegex);
       if (matches) {
         matches.forEach((email) => {
           const normalized = email.toLowerCase();
-
-          if (!IGNORED_EMAILS.has(normalized)) {
-            emails.add(normalized);
-          }
+          if (!IGNORED_EMAILS.has(normalized)) emails.add(normalized);
         });
       }
     });
-
     return [...emails];
   }
 
   function getFailureReason(event) {
     const result = (event?.outcome?.result || "").toUpperCase();
     const reason = (event?.outcome?.reason || "").toLowerCase();
-
     if (result === "DEFERRED" || reason.includes("deferred") || reason.includes("defer")) {
       return "Deferred";
     }
-
-    if (reason.includes("bounce")) {
-      return "Bounce";
-    }
-
+    if (reason.includes("bounce")) return "Bounce";
     return reason || result || "Unknown";
   }
 
   function isBounceOrDeferredEvent(event) {
     const result = (event?.outcome?.result || "").toUpperCase();
     const reason = (event?.outcome?.reason || "").toLowerCase();
-
     return (
       result === "DEFERRED" ||
       reason.includes("deferred") ||
@@ -453,348 +395,114 @@
 
   function summarizeBounceEvents(events) {
     const byEmail = new Map();
-
     events.forEach((event) => {
-      if (!isBounceOrDeferredEvent(event)) {
-        return;
-      }
-
+      if (!isBounceOrDeferredEvent(event)) return;
       const emails = extractEmailsFromEvent(event);
       const reason = getFailureReason(event);
       const published = event?.published || "";
 
       emails.forEach((email) => {
         const existing = byEmail.get(email) || {
-          email,
-          reason,
-          count: 0,
-          lastSeen: "",
-          eventUuids: []
+          email, reason, count: 0, lastSeen: "", eventUuids: []
         };
-
         existing.count += 1;
-
         if (!existing.lastSeen || new Date(published) > new Date(existing.lastSeen)) {
           existing.lastSeen = published;
           existing.reason = reason;
         }
-
-        if (event?.uuid) {
-          existing.eventUuids.push(event.uuid);
-        }
-
+        if (event?.uuid) existing.eventUuids.push(event.uuid);
         byEmail.set(email, existing);
       });
     });
 
-    return [...byEmail.values()].sort((a, b) => {
-      return new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0);
-    });
+    return [...byEmail.values()].sort(
+      (a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0)
+    );
   }
 
   function parseNextLink(linkHeader) {
     if (!linkHeader) return null;
-
-    const links = linkHeader.split(",");
-
-    for (const link of links) {
+    for (const link of linkHeader.split(",")) {
       const match = link.match(/<([^>]+)>;\s*rel="next"/i);
-      if (match) {
-        return match[1];
-      }
+      if (match) return match[1];
     }
-
     return null;
-  }
-
-  function motFetchWithHeaders(url, options = {}) {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        {
-          type: "MOT_FETCH_WITH_HEADERS",
-          url,
-          method: options.method || "GET",
-          headers: options.headers || {},
-          body: options.body
-        },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-            return;
-          }
-
-          if (!response) {
-            reject(new Error("No response from MOT service worker"));
-            return;
-          }
-
-          if (!response.ok) {
-            const data = response.data || {};
-            const message =
-              data.errorSummary ||
-              data.error ||
-              data.raw ||
-              response.statusText ||
-              "Request failed";
-
-            reject(new Error(`${response.status} ${response.statusText}: ${message}`));
-            return;
-          }
-
-          resolve(response);
-        }
-      );
-    });
   }
 
   async function fetchLogPages(initialUrl) {
     const allEvents = [];
     let nextUrl = initialUrl;
     let pagesFetched = 0;
-
     while (nextUrl && pagesFetched < MAX_LOG_PAGES) {
-      const response = await motFetchWithHeaders(nextUrl);
+      const response = await rbFetchWithHeaders(nextUrl);
       const pageEvents = Array.isArray(response.data) ? response.data : [];
-
       allEvents.push(...pageEvents);
       pagesFetched += 1;
       nextUrl = parseNextLink(response.headers?.link);
     }
-
-    return {
-      events: allEvents,
-      pagesFetched,
-      hasMore: Boolean(nextUrl)
-    };
+    return { events: allEvents, pagesFetched, hasMore: Boolean(nextUrl) };
   }
 
-  async function loadOrganizationInfo() {
-    const tenantOrigin = getTenantOriginFromAdminHost();
-    const adminOrigin = getAdminOrigin();
-
-    setText("[data-mot-admin-url]", adminOrigin);
-    setText("[data-mot-tenant-url]", tenantOrigin);
-    setText("[data-mot-platform]", getPlatformName());
-
-    if (!tenantOrigin) {
-      setStatus("[data-mot-org-status]", "error", "Unable to derive tenant URL from admin URL");
-      return;
-    }
-
-    try {
-      setStatus("[data-mot-org-status]", "loading", "Loading organization metadata");
-
-      const orgInfo = await motFetchJson(`${tenantOrigin}/.well-known/okta-organization`);
-      const summary = extractOrgSummary(orgInfo);
-
-      setText("[data-mot-cell]", summary.cell);
-      setText("[data-mot-pipeline]", summary.pipeline);
-      setText("[data-mot-custom-domains]", summary.customDomainsText);
-
-      const details = document.querySelector("[data-mot-org-json]");
-      if (details) {
-        details.textContent = safeJsonStringify(orgInfo);
-      }
-
-      setStatus("[data-mot-org-status]", "ok", "Organization metadata loaded");
-    } catch (error) {
-      setStatus("[data-mot-org-status]", "error", "Unable to load organization metadata");
-      setText("[data-mot-cell]", "Unavailable");
-      setText("[data-mot-pipeline]", "Unavailable");
-      setText("[data-mot-custom-domains]", "Unavailable");
-
-      const details = document.querySelector("[data-mot-org-json]");
-      if (details) {
-        details.textContent = error.message;
-      }
-    }
+  // ---------------------------------------------------------------------------
+  // Session validation + tenant metadata
+  // ---------------------------------------------------------------------------
+  function setSessionPill(state, text) {
+    const pill = document.querySelector("[data-rbd-session]");
+    if (!pill) return;
+    pill.className = `rbd-pill rbd-session rbd-session-${state}`;
+    pill.querySelector("[data-rbd-session-text]").textContent = text;
   }
 
-  async function testApiAccess() {
+  async function validateSession() {
     const apiOrigin = getApiOrigin();
-
     if (!apiOrigin) {
-      setStatus("[data-mot-api-status]", "error", "Unable to determine API origin");
+      setSessionPill("error", "No session");
       return;
     }
-
+    setSessionPill("loading", "Checking…");
     try {
-      setStatus("[data-mot-api-status]", "loading", "Testing API access");
-
-      await motFetchJson(`${apiOrigin}/api/v1/logs?limit=1`);
-
-      setStatus("[data-mot-api-status]", "ok", "API reachable with current admin session");
+      await rbFetchJson(`${apiOrigin}/api/v1/logs?limit=1`);
+      setSessionPill("ok", "Session valid");
     } catch (error) {
       if (error.message.includes("403")) {
-        setStatus("[data-mot-api-status]", "warn", "API reachable but permission denied");
+        setSessionPill("warn", "Permission denied");
       } else {
-        setStatus("[data-mot-api-status]", "error", "API test failed");
-      }
-
-      const details = document.querySelector("[data-mot-api-error]");
-      if (details) {
-        details.textContent = error.message;
+        setSessionPill("error", "Session invalid");
       }
     }
   }
 
-  function renderBounceResults() {
-    const tbody = document.querySelector("[data-mot-bounce-tbody]");
-    const countEl = document.querySelector("[data-mot-bounce-count]");
-    const pageEl = document.querySelector("[data-mot-bounce-page]");
-    const toolbarEl = document.querySelector("[data-mot-bounce-toolbar]");
-    const selectPageButton = document.querySelector("[data-mot-action='select-all-bounces']");
-    const paginationEl = document.querySelector("[data-mot-pagination]");
-    const prevButton = document.querySelector("[data-mot-action='prev-bounce-page']");
-    const nextButton = document.querySelector("[data-mot-action='next-bounce-page']");
+  async function loadTenantMetadata() {
+    const tenantHost = getTenantHostFromAdminHost();
+    const platform = getPlatformName();
 
-    if (!tbody) return;
+    setText("[data-rbd-tenant-host]", tenantHost || "Unknown tenant");
+    setText("[data-rbd-tenant-platform]", platform);
 
-    const totalResults = bounceResults.length;
-    const totalPages = Math.max(1, Math.ceil(totalResults / UI_PAGE_SIZE));
-
-    if (bounceCurrentPage > totalPages) {
-      bounceCurrentPage = totalPages;
-    }
-
-    const startIndex = (bounceCurrentPage - 1) * UI_PAGE_SIZE;
-    const pageItems = bounceResults.slice(startIndex, startIndex + UI_PAGE_SIZE);
-    const displayStart = totalResults === 0 ? 0 : startIndex + 1;
-    const displayEnd = Math.min(startIndex + UI_PAGE_SIZE, totalResults);
-
-    countEl.textContent = `${totalResults} bounced/deferred email${totalResults === 1 ? "" : "s"} found`;
-
-    if (toolbarEl) {
-      toolbarEl.style.display = totalResults > 0 ? "flex" : "none";
-    }
-
-    if (selectPageButton) {
-      selectPageButton.style.display = totalResults > 0 ? "" : "none";
-    }
-
-    if (paginationEl) {
-      paginationEl.style.display = totalResults > 0 && totalPages > 1 ? "flex" : "none";
-    }
-
-    if (pageEl) {
-      pageEl.textContent = `Showing ${displayStart}-${displayEnd} · Page ${bounceCurrentPage} of ${totalPages}`;
-    }
-
-    if (prevButton) {
-      prevButton.disabled = bounceCurrentPage <= 1;
-    }
-
-    if (nextButton) {
-      nextButton.disabled = bounceCurrentPage >= totalPages;
-    }
-
-    if (totalResults === 0) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="5" class="mot-empty">No bounced or deferred emails found for this range.</td>
-        </tr>
-      `;
-      return;
-    }
-
-    tbody.innerHTML = pageItems
-      .map((item, pageIndex) => {
-        const realIndex = startIndex + pageIndex;
-        const lastSeen = item.lastSeen ? new Date(item.lastSeen).toLocaleString() : "Unavailable";
-
-        return `
-          <tr>
-            <td>
-              <input type="checkbox" data-mot-bounce-select="${realIndex}" aria-label="Select ${item.email}" />
-            </td>
-            <td class="mot-email-cell">${item.email}</td>
-            <td>${item.reason}</td>
-            <td>${item.count}</td>
-            <td>${lastSeen}</td>
-          </tr>
-        `;
-      })
-      .join("");
-  }
-
-  async function loadBounceEmails(days) {
-    const apiOrigin = getApiOrigin();
-    const since = encodeURIComponent(getSinceISOString(days));
-
-    const bounceFilter = encodeURIComponent(
-      'eventType eq "system.email.delivery" and outcome.result eq "FAILURE"'
-    );
-
-    const deferredFilter = encodeURIComponent(
-      'eventType eq "system.email.delivery" and outcome.result eq "DEFERRED"'
-    );
-
-    const bounceUrl = `${apiOrigin}/api/v1/logs?since=${since}&filter=${bounceFilter}&limit=${LOG_FETCH_LIMIT}`;
-    const deferredUrl = `${apiOrigin}/api/v1/logs?since=${since}&filter=${deferredFilter}&limit=${LOG_FETCH_LIMIT}`;
+    const tenantOrigin = getTenantOriginFromAdminHost();
+    if (!tenantOrigin) return;
 
     try {
-      clearText("[data-mot-bounce-error]");
-      const confirmation = document.querySelector("[data-mot-removal-confirmation]");
-      if (confirmation) confirmation.innerHTML = "";
+      const orgInfo = await rbFetchJson(`${tenantOrigin}/.well-known/okta-organization`);
+      const summary = extractOrgSummary(orgInfo);
+      setText("[data-rbd-cell]", summary.cell);
+      setText("[data-rbd-pipeline]", summary.pipeline);
+      setText("[data-rbd-custom-domains]", summary.customDomainsText);
 
-      setStatus("[data-mot-bounce-status]", "loading", `Loading last ${days === 1 ? "24 hours" : `${days} days`}`);
-
-      setText(
-        "[data-mot-bounce-query]",
-        `${decodeURIComponent(bounceUrl)}
-
-${decodeURIComponent(deferredUrl)}`
-      );
-
-      const [bounceResult, deferredResult] = await Promise.all([
-        fetchLogPages(bounceUrl),
-        fetchLogPages(deferredUrl)
-      ]);
-
-      const allEvents = [
-        ...bounceResult.events,
-        ...deferredResult.events
-      ];
-
-      processedLogEvents = allEvents.length;
-      bounceCurrentPage = 1;
-      bounceResults = summarizeBounceEvents(allEvents);
-
-      renderBounceResults();
-      setStatus("[data-mot-bounce-status]", "ok", "Bounce search complete");
+      const raw = document.querySelector("[data-rbd-org-json]");
+      if (raw) raw.textContent = safeJsonStringify(orgInfo);
     } catch (error) {
-      bounceResults = [];
-      processedLogEvents = 0;
-      bounceCurrentPage = 1;
-      renderBounceResults();
-
-      if (error.message.includes("403")) {
-        setStatus("[data-mot-bounce-status]", "warn", "Permission denied for System Log search");
-      } else {
-        setStatus("[data-mot-bounce-status]", "error", "Bounce search failed");
-      }
-
-      setText("[data-mot-bounce-error]", error.message);
+      setText("[data-rbd-cell]", "Unavailable");
+      setText("[data-rbd-pipeline]", "Unavailable");
+      setText("[data-rbd-custom-domains]", "Unavailable");
+      const raw = document.querySelector("[data-rbd-org-json]");
+      if (raw) raw.textContent = error.message;
     }
   }
 
-  function getSelectedBounceEmails() {
-    const selected = [];
-    document.querySelectorAll("[data-mot-bounce-select]").forEach((checkbox) => {
-      if (!checkbox.checked) return;
-
-      const index = Number(checkbox.getAttribute("data-mot-bounce-select"));
-      const item = bounceResults[index];
-
-      if (item?.email) {
-        selected.push(item.email);
-      }
-    });
-
-    return selected;
-  }
-
-
+  // ---------------------------------------------------------------------------
+  // CSV
+  // ---------------------------------------------------------------------------
   function csvEscape(value) {
     return `"${String(value ?? "").replaceAll('"', '""')}"`;
   }
@@ -802,12 +510,10 @@ ${decodeURIComponent(deferredUrl)}`
   function downloadTextFile(filename, fileContent, mimeType = "text/csv") {
     const blob = new Blob([fileContent], { type: mimeType });
     const url = URL.createObjectURL(blob);
-
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
     a.click();
-
     URL.revokeObjectURL(url);
   }
 
@@ -821,380 +527,540 @@ ${decodeURIComponent(deferredUrl)}`
     );
   }
 
-
-  function showRemovalConfirmationDownload(csv, filename) {
-    lastRemovalConfirmationCsv = csv;
-    lastRemovalConfirmationFilename = filename;
-
-    const container = document.querySelector("[data-mot-removal-confirmation]");
-    if (!container) return;
-
-    container.innerHTML = `
-      <div class="mot-confirmation-box">
-        <div>Bounce emails removal request complete.</div>
-        <button class="mot-small-button" type="button" data-mot-action="download-removal-confirmation">
-          Download confirmation CSV
-        </button>
-      </div>
-    `;
-  }
-
-  function createBounceRemovalConfirmationCsv(rows) {
-    const headersRow = [
-      "timestamp",
-      "email_removed",
-      "response_header_request_id",
-      "response"
-    ];
-
+  function createRemovalConfirmationCsv(rows) {
+    const headersRow = ["timestamp", "email_removed", "response_header_request_id", "response"];
     const csvRows = rows.map((row) =>
-      [
-        row.timestamp,
-        row.emailRemoved,
-        row.responseHeaderRequestId,
-        row.response
-      ].map(csvEscape).join(",")
+      [row.timestamp, row.emailRemoved, row.responseHeaderRequestId, row.response]
+        .map(csvEscape)
+        .join(",")
     );
-
     return [headersRow.join(","), ...csvRows].join("\n");
   }
 
   function buildRemovalAuditRow({ email, pageResponse, error }) {
     const timestamp = new Date().toISOString();
-
     if (error) {
-      return {
-        timestamp,
-        emailRemoved: email,
-        responseHeaderRequestId: "",
-        response: error.message || String(error)
-      };
+      return { timestamp, emailRemoved: email, responseHeaderRequestId: "", response: error.message || String(error), failed: true };
     }
-
     const responseData = pageResponse?.data || {};
     const errors = Array.isArray(responseData?.errors) ? responseData.errors : [];
-    const emailError = errors.find((item) => {
-      return String(item?.emailAddress || "").toLowerCase() === String(email).toLowerCase();
-    });
-
+    const emailError = errors.find(
+      (item) => String(item?.emailAddress || "").toLowerCase() === String(email).toLowerCase()
+    );
     return {
       timestamp,
       emailRemoved: email,
       responseHeaderRequestId: getResponseRequestId(pageResponse?.headers || {}),
       response: emailError
         ? `${pageResponse?.status} ${pageResponse?.statusText}: ${JSON.stringify(emailError)}`
-        : `${pageResponse?.status} successful`
+        : `${pageResponse?.status} successful`,
+      failed: Boolean(emailError)
     };
   }
 
+  function exportResultsCsv() {
+    const rows = getFilteredResults();
+    if (rows.length === 0) return;
 
-  async function removeSelectedBounceEmails() {
-    const selectedEmails = getSelectedBounceEmails();
+    const headers = ["email", "reason", "count", "lastSeen", "eventUuids"];
+    const csvRows = rows.map((item) =>
+      headers
+        .map((header) => csvEscape(header === "eventUuids" ? item.eventUuids.join(" | ") : item[header]))
+        .join(",")
+    );
+    const csv = [headers.join(","), ...csvRows].join("\n");
+    downloadTextFile(`rebound-results-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+  }
 
-    if (selectedEmails.length === 0) {
-      setStatus("[data-mot-bounce-status]", "warn", "Select at least one email first");
+  // ---------------------------------------------------------------------------
+  // Filtering + selection
+  // ---------------------------------------------------------------------------
+  function getFilteredResults() {
+    const text = currentTextFilter.trim().toLowerCase();
+    return bounceResults.filter((item) => {
+      if (currentStateFilter !== "All" && item.reason !== currentStateFilter) return false;
+      if (text && !item.email.includes(text)) return false;
+      return true;
+    });
+  }
+
+  function reasonPillClass(reason) {
+    if (reason === "Bounce") return "rbd-pill-bounce";
+    if (reason === "Deferred") return "rbd-pill-deferred";
+    return "rbd-pill-neutral";
+  }
+
+  // ---------------------------------------------------------------------------
+  // Views
+  // ---------------------------------------------------------------------------
+  function switchView(view) {
+    currentView = view;
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    panel.querySelectorAll("[data-rbd-view]").forEach((section) => {
+      section.style.display = section.getAttribute("data-rbd-view") === view ? "" : "none";
+    });
+    // The tenant strip and controls only belong to the results view.
+    const showResultsChrome = view === "results";
+    const controls = panel.querySelector("[data-rbd-controls]");
+    if (controls) controls.style.display = showResultsChrome ? "" : "none";
+  }
+
+  function renderHero() {
+    // Hero reflects the total found for the selected time window, independent of
+    // the address / state view filters below it.
+    const countEl = document.querySelector("[data-rbd-hero-count]");
+    const subEl = document.querySelector("[data-rbd-hero-sub]");
+    if (countEl) countEl.textContent = String(bounceResults.length);
+    if (subEl) {
+      const windowLabel = currentDays === 1 ? "last 24 hours" : `last ${currentDays} days`;
+      subEl.textContent = hasSearched ? `found in the ${windowLabel}` : "choose a range to search";
+    }
+  }
+
+  function renderResultsList() {
+    const list = document.querySelector("[data-rbd-list]");
+    const empty = document.querySelector("[data-rbd-list-empty]");
+    if (!list) return;
+
+    const results = getFilteredResults();
+
+    if (results.length === 0) {
+      list.innerHTML = "";
+      if (empty) {
+        empty.style.display = "";
+        empty.textContent = hasSearched
+          ? "No addresses match the current filters."
+          : "Choose a time range to search.";
+      }
+      renderActionBar();
       return;
     }
+    if (empty) empty.style.display = "none";
+
+    list.innerHTML = results
+      .map((item) => {
+        const selected = selectedEmails.has(item.email);
+        const lastSeen = item.lastSeen
+          ? new Date(item.lastSeen).toLocaleString([], {
+              month: "short", day: "numeric", hour: "numeric", minute: "2-digit"
+            })
+          : "unknown";
+        const meta = `${item.count} event${item.count === 1 ? "" : "s"} · last ${lastSeen}`;
+        return `
+          <div class="rbd-row${selected ? " rbd-row-selected" : ""}" data-rbd-email="${esc(item.email)}">
+            <span class="rbd-check${selected ? " rbd-check-on" : ""}" data-rbd-toggle="${esc(item.email)}" role="checkbox" aria-checked="${selected}" tabindex="0" aria-label="Select ${esc(item.email)}">
+              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"/></svg>
+            </span>
+            <span class="rbd-row-main">
+              <span class="rbd-mono rbd-row-email" title="${esc(item.email)}">${esc(item.email)}</span>
+              <span class="rbd-row-meta">${esc(meta)}</span>
+            </span>
+            <span class="rbd-pill ${reasonPillClass(item.reason)}">${esc(item.reason)}</span>
+          </div>
+        `;
+      })
+      .join("");
+
+    renderActionBar();
+  }
+
+  function renderActionBar() {
+    const results = getFilteredResults();
+    const selectedInView = results.filter((item) => selectedEmails.has(item.email)).length;
+
+    const countEl = document.querySelector("[data-rbd-selected-count]");
+    if (countEl) countEl.textContent = `${selectedInView} selected`;
+
+    const selectAll = document.querySelector("[data-rbd-select-all]");
+    if (selectAll) {
+      const allSelected = results.length > 0 && selectedInView === results.length;
+      selectAll.textContent = allSelected ? "Clear all" : "Select all";
+      selectAll.style.display = results.length > 0 ? "" : "none";
+    }
+
+    const resultCount = document.querySelector("[data-rbd-result-count]");
+    if (resultCount) {
+      resultCount.textContent = `${results.length} address${results.length === 1 ? "" : "es"}`;
+    }
+
+    const hasSelection = selectedInView > 0;
+    document.querySelectorAll("[data-rbd-needs-selection]").forEach((btn) => {
+      btn.disabled = !hasSelection;
+    });
+    const exportBtn = document.querySelector("[data-rbd-action='export']");
+    if (exportBtn) exportBtn.disabled = results.length === 0;
+  }
+
+  function renderResultsView() {
+    renderHero();
+    renderResultsList();
+    updateSegments();
+  }
+
+  function updateSegments() {
+    document.querySelectorAll("[data-rbd-range]").forEach((btn) => {
+      btn.classList.toggle("rbd-seg-on", Number(btn.getAttribute("data-rbd-range")) === currentDays);
+    });
+    document.querySelectorAll("[data-rbd-state]").forEach((btn) => {
+      btn.classList.toggle("rbd-seg-on", btn.getAttribute("data-rbd-state") === currentStateFilter);
+    });
+  }
+
+  function renderRemovedView() {
+    if (!lastRemoval) return;
+    const { rows, successCount, filename } = lastRemoval;
+
+    setText("[data-rbd-removed-count]", `${successCount} address${successCount === 1 ? "" : "es"} restored`);
+
+    const list = document.querySelector("[data-rbd-removed-list]");
+    if (list) {
+      list.innerHTML = rows
+        .map((row) => {
+          if (row.failed) {
+            return `
+              <div class="rbd-removed-row rbd-removed-fail">
+                <span class="rbd-x">✕</span>
+                <span class="rbd-mono rbd-row-email" title="${esc(row.emailRemoved)}">${esc(row.emailRemoved)}</span>
+                <span class="rbd-removed-label rbd-removed-label-fail">Failed</span>
+              </div>`;
+          }
+          return `
+            <div class="rbd-removed-row">
+              <span class="rbd-tick">✓</span>
+              <span class="rbd-mono rbd-row-email" title="${esc(row.emailRemoved)}">${esc(row.emailRemoved)}</span>
+              <span class="rbd-removed-label">Removed</span>
+            </div>`;
+        })
+        .join("");
+    }
+
+    setText("[data-rbd-audit-filename]", filename);
+  }
+
+  function renderClearView() {
+    const windowLabel = currentDays === 1 ? "last 24 hours" : `last ${currentDays} days`;
+    setText("[data-rbd-clear-sub]", `No bounced or deferred addresses in the ${windowLabel}. Nothing to remove.`);
+    setText("[data-rbd-clear-checked]", lastCheckedLabel ? `Last checked ${lastCheckedLabel}` : "");
+    document.querySelectorAll("[data-rbd-clear-range]").forEach((btn) => {
+      btn.classList.toggle("rbd-seg-on", Number(btn.getAttribute("data-rbd-clear-range")) === currentDays);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Actions
+  // ---------------------------------------------------------------------------
+  function setBusy(busy, message) {
+    const bar = document.querySelector("[data-rbd-status]");
+    if (!bar) return;
+    bar.style.display = busy || message ? "" : "none";
+    bar.classList.toggle("rbd-status-busy", Boolean(busy));
+    if (busy) bar.classList.remove("rbd-status-error");
+    const text = bar.querySelector("[data-rbd-status-text]");
+    if (text) text.textContent = message || "";
+  }
+
+  async function loadBounceEmails(days) {
+    currentDays = days;
+    updateSegments();
+
+    const apiOrigin = getApiOrigin();
+    const since = encodeURIComponent(getSinceISOString(days));
+    const bounceFilter = encodeURIComponent(
+      'eventType eq "system.email.delivery" and outcome.result eq "FAILURE"'
+    );
+    const deferredFilter = encodeURIComponent(
+      'eventType eq "system.email.delivery" and outcome.result eq "DEFERRED"'
+    );
+    const bounceUrl = `${apiOrigin}/api/v1/logs?since=${since}&filter=${bounceFilter}&limit=${LOG_FETCH_LIMIT}`;
+    const deferredUrl = `${apiOrigin}/api/v1/logs?since=${since}&filter=${deferredFilter}&limit=${LOG_FETCH_LIMIT}`;
+
+    setText("[data-rbd-query]", `${decodeURIComponent(bounceUrl)}\n\n${decodeURIComponent(deferredUrl)}`);
+    setBusy(true, `Searching the ${days === 1 ? "last 24 hours" : `last ${days} days`}…`);
+
+    try {
+      const [bounceResult, deferredResult] = await Promise.all([
+        fetchLogPages(bounceUrl),
+        fetchLogPages(deferredUrl)
+      ]);
+
+      const allEvents = [...bounceResult.events, ...deferredResult.events];
+      processedLogEvents = allEvents.length;
+      bounceResults = summarizeBounceEvents(allEvents);
+      selectedEmails.clear();
+      hasSearched = true;
+      lastCheckedLabel = timeLabel();
+
+      setBusy(false);
+
+      if (bounceResults.length === 0) {
+        renderClearView();
+        switchView("clear");
+      } else {
+        renderResultsView();
+        switchView("results");
+      }
+    } catch (error) {
+      bounceResults = [];
+      selectedEmails.clear();
+      hasSearched = true;
+      renderResultsView();
+      switchView("results");
+      if (error.message.includes("403")) {
+        setBusy(false, "Permission denied for System Log search.");
+      } else {
+        setBusy(false, `Search failed: ${error.message}`);
+      }
+      const bar = document.querySelector("[data-rbd-status]");
+      if (bar) bar.classList.add("rbd-status-error");
+    }
+  }
+
+  async function removeSelected() {
+    const emails = getFilteredResults()
+      .filter((item) => selectedEmails.has(item.email))
+      .map((item) => item.email);
+
+    if (emails.length === 0) return;
 
     const confirmed = window.confirm(
-      `Remove ${selectedEmails.length} email address${selectedEmails.length === 1 ? "" : "es"} from the bounce list?\n\n${selectedEmails.join("\n")}`
+      `Remove ${emails.length} address${emails.length === 1 ? "" : "es"} from the bounce list?\n\n${emails.join("\n")}`
     );
+    if (!confirmed) return;
 
-    if (!confirmed) {
-      return;
-    }
+    setBusy(true, "Removing selected addresses…");
 
     const auditRows = [];
     let successCount = 0;
     let errorCount = 0;
 
-    try {
-      clearText("[data-mot-bounce-error]");
-      setStatus("[data-mot-bounce-status]", "loading", "Removing selected emails");
-
-      for (const email of selectedEmails) {
-        try {
-          const pageResponse = await motPageContextFetchJson("/api/v1/org/email/bounces/remove-list", {
-            method: "POST",
-            body: JSON.stringify({
-              emailAddresses: [email]
-            })
-          });
-
-          const responseData = pageResponse?.data || {};
-          const errors = Array.isArray(responseData?.errors) ? responseData.errors : [];
-          const emailHasError = errors.some((item) => {
-            return String(item?.emailAddress || "").toLowerCase() === String(email).toLowerCase();
-          });
-
-          if (emailHasError) {
-            errorCount += 1;
-          } else {
-            successCount += 1;
-          }
-
-          auditRows.push(buildRemovalAuditRow({ email, pageResponse }));
-        } catch (error) {
-          errorCount += 1;
-          auditRows.push(buildRemovalAuditRow({ email, error }));
-        }
-      }
-
-      const confirmationFilename = `mot-bounce-removal-confirmation-${new Date().toISOString().replaceAll(":", "-").slice(0, 19)}.csv`;
-      const confirmationCsv = createBounceRemovalConfirmationCsv(auditRows);
-
-      showRemovalConfirmationDownload(confirmationCsv, confirmationFilename);
-
-      if (errorCount > 0) {
-        setStatus(
-          "[data-mot-bounce-status]",
-          "warn",
-          `Removal completed: ${successCount} successful, ${errorCount} error${errorCount === 1 ? "" : "s"}. Download confirmation CSV.`
+    for (const email of emails) {
+      try {
+        const pageResponse = await rbPageContextFetchJson("/api/v1/org/email/bounces/remove-list", {
+          method: "POST",
+          body: JSON.stringify({ emailAddresses: [email] })
+        });
+        const responseData = pageResponse?.data || {};
+        const errors = Array.isArray(responseData?.errors) ? responseData.errors : [];
+        const emailHasError = errors.some(
+          (item) => String(item?.emailAddress || "").toLowerCase() === String(email).toLowerCase()
         );
-
-        // Detailed per-email removal errors are captured in the confirmation CSV.
-        // They are intentionally not shown in the normal UI. Future debug mode can expose them.
-      } else {
-        setStatus("[data-mot-bounce-status]", "ok", "Selected emails removed from bounce list. Download confirmation CSV.");
+        if (emailHasError) errorCount += 1;
+        else successCount += 1;
+        auditRows.push(buildRemovalAuditRow({ email, pageResponse }));
+      } catch (error) {
+        errorCount += 1;
+        auditRows.push(buildRemovalAuditRow({ email, error }));
       }
-    } catch (error) {
-      setStatus("[data-mot-bounce-status]", "error", "Bounce removal failed");
-      setText("[data-mot-bounce-error]", error.message);
-    }
-  }
-
-  function exportBounceResultsCsv
-() {
-    if (bounceResults.length === 0) {
-      setStatus("[data-mot-bounce-status]", "warn", "No results to export");
-      return;
     }
 
-    const headers = ["email", "reason", "count", "lastSeen", "eventUuids"];
-    const rows = bounceResults.map((item) =>
-      headers
-        .map((header) => {
-          const value = header === "eventUuids" ? item.eventUuids.join(" | ") : item[header];
-          return `"${String(value || "").replaceAll('"', '""')}"`;
-        })
-        .join(",")
-    );
+    const filename = `rebound-removal-${new Date().toISOString().slice(0, 10)}.csv`;
+    lastRemoval = {
+      rows: auditRows,
+      csv: createRemovalConfirmationCsv(auditRows),
+      filename,
+      successCount,
+      errorCount
+    };
 
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `mot-bounce-results-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-
-    URL.revokeObjectURL(url);
+    setBusy(false);
+    renderRemovedView();
+    switchView("removed");
   }
 
-  function activateInfoTab(panel, tabName) {
-    panel.querySelectorAll("[data-mot-info-tab]").forEach((button) => {
-      button.classList.toggle("mot-tab-active", button.getAttribute("data-mot-info-tab") === tabName);
-    });
-
-    panel.querySelectorAll("[data-mot-info-panel]").forEach((section) => {
-      section.classList.toggle("mot-info-panel-active", section.getAttribute("data-mot-info-panel") === tabName);
-    });
+  function toggleSelection(email) {
+    if (selectedEmails.has(email)) selectedEmails.delete(email);
+    else selectedEmails.add(email);
+    renderResultsList();
   }
 
-
-  function toggleSettingsPanel(panel) {
-    const settings = panel.querySelector("[data-mot-settings]");
-    if (!settings) return;
-
-    const expanded = settings.classList.toggle("mot-settings-open");
-
-    const button = panel.querySelector("[data-mot-action='settings']");
-    if (button) {
-      button.setAttribute("aria-expanded", String(expanded));
-    }
+  function toggleSelectAll() {
+    const results = getFilteredResults();
+    const allSelected = results.length > 0 && results.every((item) => selectedEmails.has(item.email));
+    if (allSelected) results.forEach((item) => selectedEmails.delete(item.email));
+    else results.forEach((item) => selectedEmails.add(item.email));
+    renderResultsList();
   }
 
+  // ---------------------------------------------------------------------------
+  // Panel chrome (menu / minimize / position)
+  // ---------------------------------------------------------------------------
   function applyPanelState(panel) {
     const minimized = getStoredValue(STORAGE_KEYS.minimized, "false") === "true";
     const position = getStoredValue(STORAGE_KEYS.position, "bottom");
+    panel.classList.toggle("rbd-minimized", minimized);
+    panel.classList.toggle("rbd-top", position === "top");
+    panel.classList.toggle("rbd-bottom", position !== "top");
 
-    panel.classList.toggle("mot-minimized", minimized);
-    panel.classList.toggle("mot-top", position === "top");
-    panel.classList.toggle("mot-bottom", position !== "top");
+    const positionItem = panel.querySelector("[data-rbd-action='position']");
+    if (positionItem) positionItem.textContent = position === "top" ? "Move to bottom" : "Move to top";
+  }
 
-    const minimizeButton = panel.querySelector("[data-mot-action='minimize']");
-    const positionButton = panel.querySelector("[data-mot-action='position']");
+  function closeMenu(panel) {
+    const menu = panel.querySelector("[data-rbd-menu]");
+    if (menu) menu.classList.remove("rbd-menu-open");
+  }
 
-    if (minimizeButton) {
-      minimizeButton.textContent = minimized ? "□" : "−";
-      minimizeButton.title = minimized ? "Expand MOT" : "Minimize MOT";
-      minimizeButton.setAttribute("aria-label", minimized ? "Expand MOT" : "Minimize MOT");
-    }
+  // ---------------------------------------------------------------------------
+  // Segmented control markup helpers
+  // ---------------------------------------------------------------------------
+  function rangeSegments(attr) {
+    return RANGE_OPTIONS.map(
+      (r) => `<button class="rbd-seg" type="button" ${attr}="${r.days}">${r.label}</button>`
+    ).join("");
+  }
 
-    if (positionButton) {
-      positionButton.textContent = position === "top" ? "Bottom" : "Top";
-      positionButton.title = position === "top" ? "Move MOT to bottom" : "Move MOT to top";
-    }
+  function markSvg(size) {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h9a6 6 0 0 1 6 6v1"/></svg>`;
+  }
+
+  function envelopeSvg() {
+    return `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2b59ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><path d="M3 6.5l9 6 9-6"/></svg>`;
+  }
+
+  function brandBar() {
+    return `
+      <div class="rbd-brand">
+        <span class="rbd-mark">${markSvg(20)}</span>
+        <span class="rbd-brand-text">
+          <span class="rbd-wordmark">Rebound</span>
+          <span class="rbd-tagline">${envelopeSvg()} Bounce List Manager for Okta</span>
+        </span>
+      </div>
+      <div class="rbd-header-right">
+        <button class="rbd-icon-btn" type="button" data-rbd-action="minimize" title="Minimize" aria-label="Minimize Rebound"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"/></svg></button>
+        <button class="rbd-icon-btn" type="button" data-rbd-action="menu" aria-label="Settings" aria-haspopup="true">⋯</button>
+      </div>
+    `;
   }
 
   function createPanel() {
-    if (document.getElementById(PANEL_ID)) {
-      return;
-    }
+    if (document.getElementById(PANEL_ID)) return;
 
     const panel = document.createElement("div");
     panel.id = PANEL_ID;
-    panel.className = "mot-bottom";
+    panel.className = "rbd-bottom";
 
     panel.innerHTML = `
-      <div class="mot-header">
-        <button class="mot-brand-button" type="button" data-mot-action="toggle" title="Toggle MOT panel">
-          <span class="mot-logo-badge">MOT</span>
-          <span class="mot-brand-text">
-            <span class="mot-title">MOT v1</span>
-            <span class="mot-subtitle">Operations Toolkit</span>
-          </span>
-        </button>
-
-        <div class="mot-controls">
-          <button class="mot-control mot-settings-button" type="button" data-mot-action="settings" title="MOT settings" aria-label="MOT settings" aria-expanded="false">⚙</button>
-          <button class="mot-control mot-position" type="button" data-mot-action="position" title="Move MOT to top">Top</button>
-          <button class="mot-control" type="button" data-mot-action="minimize" title="Minimize MOT">−</button>
-          <button class="mot-control" type="button" data-mot-action="close" title="Close MOT" aria-label="Close MOT panel">×</button>
-        </div>
+      <div class="rbd-header">
+        ${brandBar()}
       </div>
 
-      <div class="mot-settings" data-mot-settings>
-        <div class="mot-settings-title">Settings</div>
-        <label class="mot-toggle-row">
-          <input type="checkbox" data-mot-debug-toggle />
-          <span>Enable Debug Mode</span>
-          <strong data-mot-debug-state>Disabled</strong>
+      <div class="rbd-menu" data-rbd-menu>
+        <label class="rbd-menu-toggle">
+          <span>Debug mode</span>
+          <input type="checkbox" data-rbd-debug-toggle />
         </label>
+        <button class="rbd-menu-item" type="button" data-rbd-action="position">Move to top</button>
+        <div class="rbd-menu-sep"></div>
+        <div class="rbd-menu-meta rbd-debug-only">
+          <div class="rbd-kv"><span>Cell</span><b data-rbd-cell>—</b></div>
+          <div class="rbd-kv"><span>Pipeline</span><b data-rbd-pipeline>—</b></div>
+          <div class="rbd-kv"><span>Custom domains</span><b data-rbd-custom-domains>—</b></div>
+        </div>
+        <details class="rbd-details rbd-debug-only"><summary>Raw metadata</summary><pre data-rbd-org-json>Debug mode</pre></details>
+        <details class="rbd-details rbd-debug-only"><summary>Generated query</summary><pre data-rbd-query>Not generated yet</pre></details>
+        <div class="rbd-menu-sep"></div>
+        <a class="rbd-menu-item" href="https://github.com/noelmom/rebound/issues" target="_blank" rel="noreferrer">Report a bug</a>
+        <div class="rbd-menu-sep"></div>
+        <button class="rbd-menu-item rbd-menu-danger" type="button" data-rbd-action="close">Close Rebound</button>
+        <div class="rbd-menu-note">Independent tool — not affiliated with or endorsed by Okta, Inc.</div>
       </div>
 
-      <div class="mot-body">
-        <div class="mot-section mot-info-card">
-          <div class="mot-info-tabs">
-            <button class="mot-info-tab mot-tab-active" type="button" data-mot-action="info-tab" data-mot-info-tab="connection">Connection</button>
-            <button class="mot-info-tab" type="button" data-mot-action="info-tab" data-mot-info-tab="org">Org Metadata</button>
-            <button class="mot-info-tab" type="button" data-mot-action="info-tab" data-mot-info-tab="api">API Test</button>
+      <div class="rbd-tenant">
+        <span class="rbd-mono" data-rbd-tenant-host>tenant</span>
+        <span class="rbd-tenant-sep">/</span>
+        <span class="rbd-mono rbd-tenant-platform" data-rbd-tenant-platform>Platform</span>
+        <span class="rbd-pill rbd-session rbd-session-loading" data-rbd-session><span class="rbd-session-dot"></span><span data-rbd-session-text>Checking…</span></span>
+      </div>
+
+      <div class="rbd-status" data-rbd-status style="display:none;">
+        <span class="rbd-spinner"></span>
+        <span data-rbd-status-text></span>
+      </div>
+
+      <div class="rbd-body">
+        <!-- ===================== 3a: results ===================== -->
+        <section data-rbd-view="results">
+          <div class="rbd-hero">
+            <div class="rbd-eyebrow">Suppressed addresses</div>
+            <div class="rbd-hero-row">
+              <span class="rbd-hero-num" data-rbd-hero-count>0</span>
+              <span class="rbd-hero-sub" data-rbd-hero-sub>choose a range to search</span>
+            </div>
           </div>
 
-          <div class="mot-info-panel mot-info-panel-active" data-mot-info-panel="connection">
-            <div class="mot-kv">
-              <span>Admin URL</span>
-              <strong data-mot-admin-url>Loading</strong>
+          <div data-rbd-controls>
+            <div class="rbd-filter">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9aa0aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+              <input type="text" data-rbd-filter placeholder="Filter by address…" aria-label="Filter by address" />
             </div>
-            <div class="mot-kv">
-              <span>Tenant URL</span>
-              <strong data-mot-tenant-url>Loading</strong>
-            </div>
-            <div class="mot-kv">
-              <span>Platform</span>
-              <strong data-mot-platform>Loading</strong>
+            <div class="rbd-seg-row">
+              <div class="rbd-seg-track">${rangeSegments("data-rbd-range")}</div>
+              <div class="rbd-seg-track">
+                ${STATE_FILTERS.map((s) => `<button class="rbd-seg" type="button" data-rbd-state="${s}">${s}</button>`).join("")}
+              </div>
             </div>
           </div>
 
-          <div class="mot-info-panel" data-mot-info-panel="org">
-            <div class="mot-status-row mot-status-loading" data-mot-org-status>
-              <span class="mot-status-dot"></span>
-              <span class="mot-status-text">Waiting</span>
-            </div>
-            <div class="mot-kv mot-mt">
-              <span>Cell</span>
-              <strong data-mot-cell>Loading</strong>
-            </div>
-            <div class="mot-kv">
-              <span>Pipeline</span>
-              <strong data-mot-pipeline>Loading</strong>
-            </div>
-            <div class="mot-kv">
-              <span>Custom Domains</span>
-              <strong data-mot-custom-domains>Loading</strong>
-            </div>
-
-            <details class="mot-details mot-debug-only">
-              <summary>Raw metadata</summary>
-              <pre data-mot-org-json>Debug mode disabled</pre>
-            </details>
+          <div class="rbd-list-head">
+            <span data-rbd-result-count>0 addresses</span>
+            <button class="rbd-link" type="button" data-rbd-select-all>Select all</button>
           </div>
 
-          <div class="mot-info-panel" data-mot-info-panel="api">
-            <div class="mot-status-row mot-status-loading" data-mot-api-status>
-              <span class="mot-status-dot"></span>
-              <span class="mot-status-text">Waiting</span>
-            </div>
-            <pre class="mot-error" data-mot-api-error></pre>
+          <div class="rbd-list" data-rbd-list></div>
+          <div class="rbd-empty" data-rbd-list-empty>Choose a time range to search.</div>
+        </section>
+
+        <!-- ===================== 3b: removed ===================== -->
+        <section data-rbd-view="removed" style="display:none;">
+          <div class="rbd-success-hero">
+            <span class="rbd-success-badge">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0f9d58" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+            </span>
+            <div class="rbd-success-title" data-rbd-removed-count>0 addresses restored</div>
+            <div class="rbd-success-sub">Cleared from the bounce suppression list.<br/>Delivery to these users is re-enabled.</div>
+          </div>
+
+          <div class="rbd-removed-list" data-rbd-removed-list></div>
+
+          <div class="rbd-audit">
+            <span class="rbd-audit-badge">CSV</span>
+            <span class="rbd-audit-main">
+              <span class="rbd-audit-title">Audit log saved</span>
+              <span class="rbd-mono rbd-audit-file" data-rbd-audit-filename>rebound-removal.csv</span>
+            </span>
+            <button class="rbd-link" type="button" data-rbd-action="download-audit">Download</button>
+          </div>
+
+          <button class="rbd-btn rbd-btn-ink rbd-btn-block" type="button" data-rbd-action="back">Back to results</button>
+        </section>
+
+        <!-- ===================== 3c: all clear ===================== -->
+        <section data-rbd-view="clear" style="display:none;">
+          <div class="rbd-seg-row"><div class="rbd-seg-track">${rangeSegments("data-rbd-clear-range")}</div></div>
+          <div class="rbd-clear">
+            <span class="rbd-clear-badge">${markSvgInk(22)}</span>
+            <div class="rbd-clear-title">All clear</div>
+            <div class="rbd-clear-sub" data-rbd-clear-sub>No bounced or deferred addresses. Nothing to remove.</div>
+          </div>
+          <div class="rbd-clear-foot">
+            <span data-rbd-clear-checked></span>
+            <button class="rbd-link" type="button" data-rbd-action="rerun">Re-run search</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- action bar: only meaningful in results view, hidden elsewhere via view logic -->
+      <div class="rbd-actionbar" data-rbd-view="results">
+        <div class="rbd-actionbar-row">
+          <span class="rbd-selected" data-rbd-selected-count>0 selected</span>
+          <div class="rbd-actionbar-btns">
+            <button class="rbd-btn rbd-btn-secondary" type="button" data-rbd-action="export" disabled>Export CSV</button>
+            <button class="rbd-btn rbd-btn-primary" type="button" data-rbd-action="remove" data-rbd-needs-selection disabled>Remove from list</button>
           </div>
         </div>
-
-        <div class="mot-section mot-bounce-manager">
-          <div class="mot-label">Bounce Email Manager</div>
-
-          <div class="mot-status-row mot-status-loading" data-mot-bounce-status>
-            <span class="mot-status-dot"></span>
-            <span class="mot-status-text">Ready</span>
-          </div>
-
-          <div class="mot-button-row">
-            <button class="mot-small-button" type="button" data-mot-action="load-bounces" data-days="1">24h</button>
-            <button class="mot-small-button" type="button" data-mot-action="load-bounces" data-days="7">7d</button>
-            <button class="mot-small-button" type="button" data-mot-action="load-bounces" data-days="30">30d</button>
-            <button class="mot-small-button" type="button" data-mot-action="load-bounces" data-days="90">90d</button>
-          </div>
-
-          <div class="mot-bounce-toolbar" data-mot-bounce-toolbar style="display: none;">
-            <span data-mot-bounce-count>0 results</span>
-            <button class="mot-link-button" type="button" data-mot-action="select-all-bounces">Select all</button>
-          </div>
-
-          <div class="mot-table-wrap">
-            <table class="mot-table">
-              <thead>
-                <tr>
-                  <th></th>
-                  <th>Email</th>
-                  <th>State</th>
-                  <th>Count</th>
-                  <th>Last Seen</th>
-                </tr>
-              </thead>
-              <tbody data-mot-bounce-tbody>
-                <tr>
-                  <td colspan="5" class="mot-empty">Choose a time range to search.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div class="mot-pagination" data-mot-pagination style="display: none;">
-            <button class="mot-small-button" type="button" data-mot-action="prev-bounce-page">Prev</button>
-            <span data-mot-bounce-page>Showing 0-0 · Page 1 of 1</span>
-            <button class="mot-small-button" type="button" data-mot-action="next-bounce-page">Next</button>
-          </div>
-
-          <div class="mot-button-row">
-            <button class="mot-primary-button" type="button" data-mot-action="remove-selected-bounces">Remove Selected</button>
-            <button class="mot-small-button" type="button" data-mot-action="export-bounces">Export CSV</button>
-          </div>
-
-          <div data-mot-removal-confirmation></div>
-
-          <details class="mot-details mot-debug-only">
-            <summary>Generated query</summary>
-            <pre data-mot-bounce-query>Not generated yet</pre>
-          </details>
-
-          <pre class="mot-error mot-debug-only" data-mot-bounce-error></pre>
-        </div>
-
-        <div class="mot-footer">
-          <span>MOT v1.0.0</span>
-          <span class="mot-footer-separator">•</span>
-          <a href="https://noelmom.github.io/" target="_blank" rel="noreferrer">Melo made it.</a>
-        </div>
+        <div class="rbd-actionbar-note">Removing clears suppression so these users can receive email again.</div>
       </div>
     `;
 
@@ -1202,110 +1068,143 @@ ${decodeURIComponent(deferredUrl)}`
 
     applyPanelState(panel);
     applyDebugState(panel);
-    activateInfoTab(panel, "connection");
+    switchView("results");
+    updateSegments();
+    wireEvents(panel);
 
+    validateSession();
+    loadTenantMetadata();
+    loadBounceEmails(currentDays); // auto-search 24h on open
+  }
+
+  // markSvg with brand-blue stroke for the all-clear badge
+  function markSvgInk(size) {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="#2b59ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h9a6 6 0 0 1 6 6v1"/></svg>`;
+  }
+
+  function wireEvents(panel) {
     panel.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-mot-action]");
-      if (!button) return;
+      // selection checkbox
+      const toggle = event.target.closest("[data-rbd-toggle]");
+      if (toggle) {
+        toggleSelection(toggle.getAttribute("data-rbd-toggle"));
+        return;
+      }
 
-      const action = button.getAttribute("data-mot-action");
+      // range segments (results view)
+      const range = event.target.closest("[data-rbd-range]");
+      if (range) {
+        loadBounceEmails(Number(range.getAttribute("data-rbd-range")));
+        return;
+      }
+      // range segments (clear view)
+      const clearRange = event.target.closest("[data-rbd-clear-range]");
+      if (clearRange) {
+        loadBounceEmails(Number(clearRange.getAttribute("data-rbd-clear-range")));
+        return;
+      }
 
-      if (action === "close") {
+      // state filter segments
+      const state = event.target.closest("[data-rbd-state]");
+      if (state) {
+        currentStateFilter = state.getAttribute("data-rbd-state");
+        updateSegments();
+        renderResultsList();
+        return;
+      }
+
+      const selectAll = event.target.closest("[data-rbd-select-all]");
+      if (selectAll) {
+        toggleSelectAll();
+        return;
+      }
+
+      const action = event.target.closest("[data-rbd-action]");
+      if (!action) return;
+      const name = action.getAttribute("data-rbd-action");
+
+      if (name === "menu") {
+        panel.querySelector("[data-rbd-menu]").classList.toggle("rbd-menu-open");
+        return;
+      }
+      if (name === "position") {
+        const current = getStoredValue(STORAGE_KEYS.position, "bottom");
+        setStoredValue(STORAGE_KEYS.position, current === "top" ? "bottom" : "top");
+        applyPanelState(panel);
+        return;
+      }
+      if (name === "minimize") {
+        setStoredValue(STORAGE_KEYS.minimized, "true");
+        applyPanelState(panel);
+        closeMenu(panel);
+        return;
+      }
+      if (name === "close") {
         panel.remove();
         return;
       }
-
-      if (action === "minimize" || action === "toggle") {
-        const isMinimized = panel.classList.contains("mot-minimized");
-        setStoredValue(STORAGE_KEYS.minimized, String(!isMinimized));
-        applyPanelState(panel);
+      if (name === "export") {
+        exportResultsCsv();
         return;
       }
-
-      if (action === "position") {
-        const currentPosition = getStoredValue(STORAGE_KEYS.position, "bottom");
-        const nextPosition = currentPosition === "top" ? "bottom" : "top";
-        setStoredValue(STORAGE_KEYS.position, nextPosition);
-        applyPanelState(panel);
+      if (name === "remove") {
+        removeSelected();
         return;
       }
-
-      if (action === "settings") {
-        toggleSettingsPanel(panel);
+      if (name === "back" || name === "rerun") {
+        loadBounceEmails(currentDays);
         return;
       }
-
-      if (action === "info-tab") {
-        activateInfoTab(panel, button.getAttribute("data-mot-info-tab"));
+      if (name === "download-audit") {
+        if (lastRemoval) downloadTextFile(lastRemoval.filename, lastRemoval.csv);
         return;
-      }
-
-      if (action === "load-bounces") {
-        const days = Number(button.getAttribute("data-days") || "1");
-        loadBounceEmails(days);
-        return;
-      }
-
-      if (action === "select-all-bounces") {
-        document.querySelectorAll("[data-mot-bounce-select]").forEach((checkbox) => {
-          checkbox.checked = true;
-        });
-        return;
-      }
-
-      if (action === "prev-bounce-page") {
-        if (bounceResults.length === 0) return;
-        bounceCurrentPage = Math.max(1, bounceCurrentPage - 1);
-        renderBounceResults();
-        return;
-      }
-
-      if (action === "next-bounce-page") {
-        if (bounceResults.length === 0) return;
-        const totalPages = Math.max(1, Math.ceil(bounceResults.length / UI_PAGE_SIZE));
-        bounceCurrentPage = Math.min(totalPages, bounceCurrentPage + 1);
-        renderBounceResults();
-        return;
-      }
-
-      if (action === "remove-selected-bounces") {
-        removeSelectedBounceEmails();
-        return;
-      }
-
-      if (action === "export-bounces") {
-        exportBounceResultsCsv();
-        return;
-      }
-
-      if (action === "download-removal-confirmation") {
-        if (!lastRemovalConfirmationCsv || !lastRemovalConfirmationFilename) {
-          setStatus("[data-mot-bounce-status]", "warn", "No confirmation CSV available");
-          return;
-        }
-
-        downloadTextFile(lastRemovalConfirmationFilename, lastRemovalConfirmationCsv);
       }
     });
 
+    // restore from minimized by clicking the header brand
+    panel.querySelector(".rbd-brand").addEventListener("click", () => {
+      if (panel.classList.contains("rbd-minimized")) {
+        setStoredValue(STORAGE_KEYS.minimized, "false");
+        applyPanelState(panel);
+      }
+    });
 
+    // keyboard toggle for checkboxes
+    panel.addEventListener("keydown", (event) => {
+      const toggle = event.target.closest("[data-rbd-toggle]");
+      if (toggle && (event.key === " " || event.key === "Enter")) {
+        event.preventDefault();
+        toggleSelection(toggle.getAttribute("data-rbd-toggle"));
+      }
+    });
+
+    // address filter
+    const filterInput = panel.querySelector("[data-rbd-filter]");
+    if (filterInput) {
+      filterInput.addEventListener("input", () => {
+        currentTextFilter = filterInput.value;
+        renderResultsList();
+      });
+    }
+
+    // debug toggle
     panel.addEventListener("change", (event) => {
-      const debugToggle = event.target.closest("[data-mot-debug-toggle]");
+      const debugToggle = event.target.closest("[data-rbd-debug-toggle]");
       if (!debugToggle) return;
-
       setDebugEnabled(debugToggle.checked);
       applyDebugState(panel);
     });
 
-    loadOrganizationInfo();
-    testApiAccess();
+    // close menu on outside click
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest("[data-rbd-menu]") && !event.target.closest("[data-rbd-action='menu']")) {
+        closeMenu(panel);
+      }
+    });
   }
 
   function init() {
-    if (!isAdminDashboardHost()) {
-      return;
-    }
-
+    if (!isAdminDashboardHost()) return;
     createPanel();
   }
 
