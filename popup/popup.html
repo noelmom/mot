@@ -8,53 +8,38 @@
   <body>
     <main class="popup">
       <header class="popup-header">
-        <div class="popup-logo">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h9a6 6 0 0 1 6 6v1"/></svg>
-        </div>
+        <img class="popup-logo" src="../assets/icon48.png" alt="" width="40" height="40" />
         <div>
           <h1>Rebound</h1>
-          <p>Bounce List Manager for Okta</p>
+          <p>Restore delivery for bounced emails</p>
         </div>
+        <span class="popup-version">v1.3.0</span>
       </header>
 
-      <section class="popup-card">
-        <div class="popup-label">Current Release</div>
-        <div class="popup-value">v1.2.1</div>
+      <label class="popup-status">
+        <span class="popup-status-dot"></span>
+        <span class="popup-status-copy">
+          <strong>Operations panel</strong>
+          <small data-panel-status>Checking current tab…</small>
+        </span>
+        <input type="checkbox" data-panel-toggle checked disabled />
+        <span class="popup-toggle" aria-hidden="true"><span></span></span>
+      </label>
+
+      <section class="popup-capabilities" aria-label="Capabilities">
+        <div><span>⌁</span><strong>Find</strong><small>Bounce events</small></div>
+        <div><span>✓</span><strong>Restore</strong><small>Email delivery</small></div>
+        <div><span>⇩</span><strong>Audit</strong><small>CSV exports</small></div>
       </section>
 
-      <section class="popup-card">
-        <h2>What this does</h2>
-        <p>
-          Rebound adds an operations panel inside the Okta Admin Console. It helps
-          admins search, review, export, and clear bounced or deferred email
-          addresses from the suppression list so users can receive email again.
-        </p>
-      </section>
-
-      <section class="popup-card">
-        <h2>How to use</h2>
-        <ol>
-          <li>Log in to your Okta Admin Console.</li>
-          <li>Open an admin dashboard URL such as <code>*-admin.okta.com</code>.</li>
-          <li>The Rebound panel appears automatically.</li>
-          <li>Search a time range, select addresses, and remove them from the list.</li>
-        </ol>
-      </section>
-
-      <section class="popup-card">
-        <h2>Support</h2>
-        <p>
-          Questions, bugs, and feature requests are handled on GitHub.
-        </p>
-        <div class="popup-links">
-          <a href="https://github.com/noelmom/rebound" target="_blank" rel="noreferrer">Project Page</a>
-          <a href="https://github.com/noelmom/rebound/issues" target="_blank" rel="noreferrer">Report a Bug / Request a Feature</a>
-        </div>
-      </section>
+      <nav class="popup-links" aria-label="Rebound links">
+        <a href="https://github.com/noelmom/rebound" target="_blank" rel="noreferrer"><span>Project page</span><b>↗</b></a>
+        <a href="https://github.com/noelmom/rebound/issues" target="_blank" rel="noreferrer"><span>Help &amp; feedback</span><b>↗</b></a>
+      </nav>
 
       <footer>
-        Melo made it.
-        <span class="popup-disclaimer">Rebound is an independent tool and is not affiliated with, endorsed by, or sponsored by Okta, Inc. Okta is a trademark of Okta, Inc.</span>
+        <span>Private by design · Local processing only</span>
+        <span class="popup-disclaimer">Independent and not affiliated with Okta, Inc.</span>
       </footer>
     </main>
     <script src="popup.js"></script>

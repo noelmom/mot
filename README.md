@@ -13,7 +13,7 @@ the Okta Admin Console — so affected users can receive email again.
 ## Current Release
 
 ```text
-v1.2.1
+v1.3.0
 ```
 
 ## Features
@@ -113,6 +113,22 @@ locally using the authenticated administrator browser session.
 ```
 
 ## Release Notes
+
+### v1.3.0
+
+Enterprise UI refresh and event-history improvements.
+
+Includes:
+
+- New Rebound logo, toolbar icons, and dark enterprise interface
+- Compact extension popup with a per-tab operations-panel toggle
+- Recent-removal indicators with removal timestamps
+- Bounce and deferred event-history tooltips
+- Correct mixed Bounce / Deferred filtering with a compact Mixed state
+- Concise failed-removal tooltips while preserving full audit details in CSV
+- Improved connection, settings, debug toggle, and menu treatments
+- Wider result rows with compact `5+ events` metadata
+- Search-window consistency improvements for paginated System Log queries
 
 ### v1.2.1
 

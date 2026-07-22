@@ -43,6 +43,8 @@
   let processedLogEvents = 0;
   let lastCheckedLabel = "";
   let lastRemoval = null; // { rows, csv, filename, successCount, errorCount }
+  let panelEnabled = true;
+  let panelEventController = null;
 
   // ---------------------------------------------------------------------------
   // Host / tenant helpers
@@ -403,7 +405,7 @@
 
       emails.forEach((email) => {
         const existing = byEmail.get(email) || {
-          email, reason, count: 0, lastSeen: "", eventUuids: []
+          email, reason, count: 0, lastSeen: "", eventUuids: [], deliveryEvents: []
         };
         existing.count += 1;
         if (!existing.lastSeen || new Date(published) > new Date(existing.lastSeen)) {
@@ -411,13 +413,61 @@
           existing.reason = reason;
         }
         if (event?.uuid) existing.eventUuids.push(event.uuid);
+        existing.deliveryEvents.push({
+          published,
+          type: reason,
+          reason: event?.outcome?.reason || reason,
+          message: event?.displayMessage || ""
+        });
         byEmail.set(email, existing);
       });
+    });
+
+    byEmail.forEach((item) => {
+      item.deliveryEvents.sort((a, b) => new Date(b.published || 0) - new Date(a.published || 0));
     });
 
     return [...byEmail.values()].sort(
       (a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0)
     );
+  }
+
+  function extractRemovalEmails(event) {
+    const targets = Array.isArray(event?.target) ? event.target : [];
+    const emails = new Set();
+
+    targets
+      .filter((target) => String(target?.type || "").toLowerCase() === "emaillist")
+      .forEach((target) => {
+        const matches = String(target?.displayName || "").match(
+          /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
+        );
+        (matches || []).forEach((email) => emails.add(email.toLowerCase()));
+      });
+
+    return [...emails];
+  }
+
+  function addRecentRemovals(results, removalEvents) {
+    const removalsByEmail = new Map();
+
+    removalEvents.forEach((event) => {
+      if (event?.eventType !== "system.email.bounce.removal") return;
+      const published = event?.published || "";
+      if (!published) return;
+      extractRemovalEmails(event).forEach((email) => {
+        const timestamps = removalsByEmail.get(email) || [];
+        timestamps.push(published);
+        removalsByEmail.set(email, timestamps);
+      });
+    });
+
+    return results.map((item) => {
+      const removalTimestamps = (removalsByEmail.get(item.email) || [])
+        .filter((published) => new Date(published) > new Date(item.lastSeen || 0))
+        .sort((a, b) => new Date(b) - new Date(a));
+      return { ...item, removalTimestamps };
+    });
   }
 
   function parseNextLink(linkHeader) {
@@ -450,6 +500,15 @@
     const pill = document.querySelector("[data-rbd-session]");
     if (!pill) return;
     pill.className = `rbd-pill rbd-session rbd-session-${state}`;
+    const icon = pill.querySelector("[data-rbd-session-icon]");
+    if (icon) {
+      const glyph = state === "ok"
+        ? '<path d="m8.5 12 2.2 2.2 4.8-5"/>'
+        : state === "loading"
+          ? '<path d="M12 8v4l2.5 1.5"/>'
+          : '<path d="m9.5 9.5 5 5m0-5-5 5"/>';
+      icon.innerHTML = `<path d="M12 3 5 6v5c0 4.6 2.9 8 7 10 4.1-2 7-5.4 7-10V6l-7-3Z"/>${glyph}`;
+    }
     pill.querySelector("[data-rbd-session-text]").textContent = text;
   }
 
@@ -462,7 +521,7 @@
     setSessionPill("loading", "Checking…");
     try {
       await rbFetchJson(`${apiOrigin}/api/v1/logs?limit=1`);
-      setSessionPill("ok", "Session valid");
+      setSessionPill("ok", "Okta Connected");
     } catch (error) {
       if (error.message.includes("403")) {
         setSessionPill("warn", "Permission denied");
@@ -537,10 +596,37 @@
     return [headersRow.join(","), ...csvRows].join("\n");
   }
 
+  function getRemovalFailureMessage(errorDetails) {
+    if (!errorDetails) return "Removal failed";
+    if (typeof errorDetails === "string") return errorDetails;
+
+    const directMessage =
+      errorDetails.errorSummary ||
+      errorDetails.message ||
+      errorDetails.reason ||
+      errorDetails.error;
+    if (directMessage) return String(directMessage);
+
+    const causeMessages = Array.isArray(errorDetails.errorCauses)
+      ? errorDetails.errorCauses
+          .map((cause) => cause?.errorSummary || cause?.message)
+          .filter(Boolean)
+      : [];
+    return causeMessages.length > 0 ? causeMessages.join("; ") : "Removal failed";
+  }
+
   function buildRemovalAuditRow({ email, pageResponse, error }) {
     const timestamp = new Date().toISOString();
     if (error) {
-      return { timestamp, emailRemoved: email, responseHeaderRequestId: "", response: error.message || String(error), failed: true };
+      const failureMessage = error.message || String(error);
+      return {
+        timestamp,
+        emailRemoved: email,
+        responseHeaderRequestId: "",
+        response: failureMessage,
+        failureMessage,
+        failed: true
+      };
     }
     const responseData = pageResponse?.data || {};
     const errors = Array.isArray(responseData?.errors) ? responseData.errors : [];
@@ -554,6 +640,7 @@
       response: emailError
         ? `${pageResponse?.status} ${pageResponse?.statusText}: ${JSON.stringify(emailError)}`
         : `${pageResponse?.status} successful`,
+      failureMessage: emailError ? getRemovalFailureMessage(emailError) : "",
       failed: Boolean(emailError)
     };
   }
@@ -578,7 +665,10 @@
   function getFilteredResults() {
     const text = currentTextFilter.trim().toLowerCase();
     return bounceResults.filter((item) => {
-      if (currentStateFilter !== "All" && item.reason !== currentStateFilter) return false;
+      if (
+        currentStateFilter !== "All" &&
+        !(item.deliveryEvents || []).some((event) => event.type === currentStateFilter)
+      ) return false;
       if (text && !item.email.includes(text)) return false;
       return true;
     });
@@ -587,7 +677,38 @@
   function reasonPillClass(reason) {
     if (reason === "Bounce") return "rbd-pill-bounce";
     if (reason === "Deferred") return "rbd-pill-deferred";
+    if (reason === "Mixed") return "rbd-pill-mixed";
     return "rbd-pill-neutral";
+  }
+
+  function displayedReason(item) {
+    if (currentStateFilter !== "All") return currentStateFilter;
+    const eventTypes = new Set(
+      (item.deliveryEvents || [])
+        .map((event) => event.type)
+        .filter((type) => type === "Bounce" || type === "Deferred")
+    );
+    return eventTypes.size > 1 ? "Mixed" : item.reason;
+  }
+
+  function deliveryEventsTitle(item) {
+    const events = (item.deliveryEvents || []).filter(
+      (event) => currentStateFilter === "All" || event.type === currentStateFilter
+    );
+    if (events.length === 0) return "";
+    const heading = currentStateFilter === "All"
+      ? `Latest: ${item.reason}`
+      : `${currentStateFilter} events`;
+    return [
+      heading,
+      ...events
+      .map((event) => {
+        const timestamp = event.published ? new Date(event.published).toLocaleString() : "Unknown time";
+        const detail = event.reason || event.message || event.type || "Unknown";
+        const repeatedType = String(detail).trim().toLowerCase() === String(event.type || "").toLowerCase();
+        return `${timestamp} — ${event.type || "Unknown"}${repeatedType ? "" : ` — ${detail}`}`;
+      })
+    ].join("\n");
   }
 
   // ---------------------------------------------------------------------------
@@ -641,12 +762,25 @@
     list.innerHTML = results
       .map((item) => {
         const selected = selectedEmails.has(item.email);
-        const lastSeen = item.lastSeen
-          ? new Date(item.lastSeen).toLocaleString([], {
-              month: "short", day: "numeric", hour: "numeric", minute: "2-digit"
-            })
+        const lastSeenDate = item.lastSeen ? new Date(item.lastSeen) : null;
+        const lastSeen = lastSeenDate
+          ? `${lastSeenDate.toLocaleDateString([], { month: "short", day: "numeric" })}, ${lastSeenDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
           : "unknown";
-        const meta = `${item.count} event${item.count === 1 ? "" : "s"} · last ${lastSeen}`;
+        const eventCount = item.count > 5
+          ? "5+ events"
+          : `${item.count} event${item.count === 1 ? "" : "s"}`;
+        const meta = `${eventCount} · last ${lastSeen}`;
+        const removalTitle = (item.removalTimestamps || [])
+          .map((published) => new Date(published).toLocaleString())
+          .join("\n");
+        const removedPill = removalTitle
+          ? `<span class="rbd-pill rbd-pill-removed" title="${esc(removalTitle)}" tabindex="0" aria-label="Removal events: ${esc(removalTitle)}">Removed</span>`
+          : "";
+        const reason = displayedReason(item);
+        const eventsTitle = deliveryEventsTitle(item);
+        const reasonPillAttributes = eventsTitle
+          ? ` title="${esc(eventsTitle)}" tabindex="0" aria-label="Delivery events: ${esc(eventsTitle)}"`
+          : "";
         return `
           <div class="rbd-row${selected ? " rbd-row-selected" : ""}" data-rbd-email="${esc(item.email)}">
             <span class="rbd-check${selected ? " rbd-check-on" : ""}" data-rbd-toggle="${esc(item.email)}" role="checkbox" aria-checked="${selected}" tabindex="0" aria-label="Select ${esc(item.email)}">
@@ -656,7 +790,10 @@
               <span class="rbd-mono rbd-row-email" title="${esc(item.email)}">${esc(item.email)}</span>
               <span class="rbd-row-meta">${esc(meta)}</span>
             </span>
-            <span class="rbd-pill ${reasonPillClass(item.reason)}">${esc(item.reason)}</span>
+            <span class="rbd-row-pills">
+              ${removedPill}
+              <span class="rbd-pill ${reasonPillClass(reason)}"${reasonPillAttributes}>${esc(reason)}</span>
+            </span>
           </div>
         `;
       })
@@ -709,9 +846,20 @@
 
   function renderRemovedView() {
     if (!lastRemoval) return;
-    const { rows, successCount, filename } = lastRemoval;
+    const { rows, successCount, errorCount, filename } = lastRemoval;
 
-    setText("[data-rbd-removed-count]", `${successCount} address${successCount === 1 ? "" : "es"} restored`);
+    const summary = errorCount === 0
+      ? `${successCount} address${successCount === 1 ? "" : "es"} restored`
+      : successCount === 0
+        ? `${errorCount} removal${errorCount === 1 ? "" : "s"} failed`
+        : `${successCount} restored, ${errorCount} failed`;
+    setText("[data-rbd-removed-count]", summary);
+    setText(
+      "[data-rbd-removed-sub]",
+      errorCount === 0
+        ? "Cleared from the bounce suppression list. Delivery to these users is re-enabled."
+        : "Review failed addresses below. Hover over Failed for details."
+    );
 
     const list = document.querySelector("[data-rbd-removed-list]");
     if (list) {
@@ -722,7 +870,7 @@
               <div class="rbd-removed-row rbd-removed-fail">
                 <span class="rbd-x">✕</span>
                 <span class="rbd-mono rbd-row-email" title="${esc(row.emailRemoved)}">${esc(row.emailRemoved)}</span>
-                <span class="rbd-removed-label rbd-removed-label-fail">Failed</span>
+                <span class="rbd-removed-label rbd-removed-label-fail" title="${esc(row.failureMessage || "Removal failed")}" tabindex="0" aria-label="Failed: ${esc(row.failureMessage || "Removal failed")}">Failed</span>
               </div>`;
           }
           return `
@@ -766,27 +914,32 @@
 
     const apiOrigin = getApiOrigin();
     const since = encodeURIComponent(getSinceISOString(days));
+    const until = encodeURIComponent(new Date().toISOString());
     const bounceFilter = encodeURIComponent(
       'eventType eq "system.email.delivery" and outcome.result eq "FAILURE"'
     );
     const deferredFilter = encodeURIComponent(
       'eventType eq "system.email.delivery" and outcome.result eq "DEFERRED"'
     );
-    const bounceUrl = `${apiOrigin}/api/v1/logs?since=${since}&filter=${bounceFilter}&limit=${LOG_FETCH_LIMIT}`;
-    const deferredUrl = `${apiOrigin}/api/v1/logs?since=${since}&filter=${deferredFilter}&limit=${LOG_FETCH_LIMIT}`;
+    const removalFilter = encodeURIComponent('eventType eq "system.email.bounce.removal"');
+    const queryBase = `${apiOrigin}/api/v1/logs?since=${since}&until=${until}`;
+    const bounceUrl = `${queryBase}&filter=${bounceFilter}&limit=${LOG_FETCH_LIMIT}`;
+    const deferredUrl = `${queryBase}&filter=${deferredFilter}&limit=${LOG_FETCH_LIMIT}`;
+    const removalUrl = `${queryBase}&filter=${removalFilter}&limit=${LOG_FETCH_LIMIT}`;
 
-    setText("[data-rbd-query]", `${decodeURIComponent(bounceUrl)}\n\n${decodeURIComponent(deferredUrl)}`);
+    setText("[data-rbd-query]", `${decodeURIComponent(bounceUrl)}\n\n${decodeURIComponent(deferredUrl)}\n\n${decodeURIComponent(removalUrl)}`);
     setBusy(true, `Searching the ${days === 1 ? "last 24 hours" : `last ${days} days`}…`);
 
     try {
-      const [bounceResult, deferredResult] = await Promise.all([
+      const [bounceResult, deferredResult, removalResult] = await Promise.all([
         fetchLogPages(bounceUrl),
-        fetchLogPages(deferredUrl)
+        fetchLogPages(deferredUrl),
+        fetchLogPages(removalUrl).catch(() => ({ events: [], pagesFetched: 0, hasMore: false }))
       ]);
 
       const allEvents = [...bounceResult.events, ...deferredResult.events];
-      processedLogEvents = allEvents.length;
-      bounceResults = summarizeBounceEvents(allEvents);
+      processedLogEvents = allEvents.length + removalResult.events.length;
+      bounceResults = addRecentRemovals(summarizeBounceEvents(allEvents), removalResult.events);
       selectedEmails.clear();
       hasSearched = true;
       lastCheckedLabel = timeLabel();
@@ -921,21 +1074,24 @@
   function brandBar() {
     return `
       <div class="rbd-brand">
-        <span class="rbd-mark">${markSvg(20)}</span>
+        <span class="rbd-mark"><img src="${chrome.runtime.getURL("assets/icon48.png")}" alt="" width="32" height="32" /></span>
         <span class="rbd-brand-text">
           <span class="rbd-wordmark">Rebound</span>
-          <span class="rbd-tagline">${envelopeSvg()} Bounce List Manager for Okta</span>
+          <span class="rbd-tagline">Restore delivery for bounced emails</span>
         </span>
       </div>
       <div class="rbd-header-right">
         <button class="rbd-icon-btn" type="button" data-rbd-action="minimize" title="Minimize" aria-label="Minimize Rebound"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"/></svg></button>
-        <button class="rbd-icon-btn" type="button" data-rbd-action="menu" aria-label="Settings" aria-haspopup="true">⋯</button>
+        <button class="rbd-icon-btn" type="button" data-rbd-action="menu" aria-label="Settings" aria-haspopup="true" title="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
       </div>
     `;
   }
 
   function createPanel() {
     if (document.getElementById(PANEL_ID)) return;
+
+    panelEventController?.abort();
+    panelEventController = new AbortController();
 
     const panel = document.createElement("div");
     panel.id = PANEL_ID;
@@ -950,6 +1106,7 @@
         <label class="rbd-menu-toggle">
           <span>Debug mode</span>
           <input type="checkbox" data-rbd-debug-toggle />
+          <span class="rbd-toggle-ui" aria-hidden="true"><span></span></span>
         </label>
         <button class="rbd-menu-item" type="button" data-rbd-action="position">Move to top</button>
         <div class="rbd-menu-sep"></div>
@@ -961,7 +1118,7 @@
         <details class="rbd-details rbd-debug-only"><summary>Raw metadata</summary><pre data-rbd-org-json>Debug mode</pre></details>
         <details class="rbd-details rbd-debug-only"><summary>Generated query</summary><pre data-rbd-query>Not generated yet</pre></details>
         <div class="rbd-menu-sep"></div>
-        <a class="rbd-menu-item" href="https://github.com/noelmom/rebound/issues" target="_blank" rel="noreferrer">Report a bug</a>
+        <a class="rbd-menu-item rbd-menu-link" href="https://github.com/noelmom/rebound/issues" target="_blank" rel="noreferrer">Report a bug <span aria-hidden="true">↗</span></a>
         <div class="rbd-menu-sep"></div>
         <button class="rbd-menu-item rbd-menu-danger" type="button" data-rbd-action="close">Close Rebound</button>
         <div class="rbd-menu-note">Independent tool — not affiliated with or endorsed by Okta, Inc.</div>
@@ -971,7 +1128,7 @@
         <span class="rbd-mono" data-rbd-tenant-host>tenant</span>
         <span class="rbd-tenant-sep">/</span>
         <span class="rbd-mono rbd-tenant-platform" data-rbd-tenant-platform>Platform</span>
-        <span class="rbd-pill rbd-session rbd-session-loading" data-rbd-session><span class="rbd-session-dot"></span><span data-rbd-session-text>Checking…</span></span>
+        <span class="rbd-pill rbd-session rbd-session-loading" data-rbd-session><svg data-rbd-session-icon viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 2.9 8 7 10 4.1-2 7-5.4 7-10V6l-7-3Z"/><path d="M12 8v4l2.5 1.5"/></svg><span data-rbd-session-text>Checking…</span></span>
       </div>
 
       <div class="rbd-status" data-rbd-status style="display:none;">
@@ -1019,7 +1176,7 @@
               <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0f9d58" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
             </span>
             <div class="rbd-success-title" data-rbd-removed-count>0 addresses restored</div>
-            <div class="rbd-success-sub">Cleared from the bounce suppression list.<br/>Delivery to these users is re-enabled.</div>
+            <div class="rbd-success-sub" data-rbd-removed-sub>Cleared from the bounce suppression list. Delivery to these users is re-enabled.</div>
           </div>
 
           <div class="rbd-removed-list" data-rbd-removed-list></div>
@@ -1070,7 +1227,7 @@
     applyDebugState(panel);
     switchView("results");
     updateSegments();
-    wireEvents(panel);
+    wireEvents(panel, panelEventController.signal);
 
     validateSession();
     loadTenantMetadata();
@@ -1082,7 +1239,7 @@
     return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="#2b59ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h9a6 6 0 0 1 6 6v1"/></svg>`;
   }
 
-  function wireEvents(panel) {
+  function wireEvents(panel, signal) {
     panel.addEventListener("click", (event) => {
       // selection checkbox
       const toggle = event.target.closest("[data-rbd-toggle]");
@@ -1140,7 +1297,7 @@
         return;
       }
       if (name === "close") {
-        panel.remove();
+        setPanelEnabled(false);
         return;
       }
       if (name === "export") {
@@ -1200,13 +1357,37 @@
       if (!event.target.closest("[data-rbd-menu]") && !event.target.closest("[data-rbd-action='menu']")) {
         closeMenu(panel);
       }
-    });
+    }, { signal });
+  }
+
+  function setPanelEnabled(enabled) {
+    panelEnabled = Boolean(enabled);
+    if (panelEnabled) {
+      createPanel();
+      return;
+    }
+    panelEventController?.abort();
+    panelEventController = null;
+    document.getElementById(PANEL_ID)?.remove();
   }
 
   function init() {
     if (!isAdminDashboardHost()) return;
     createPanel();
   }
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === "REBOUND_GET_PANEL_STATE") {
+      sendResponse({ enabled: panelEnabled });
+      return false;
+    }
+    if (message?.type === "REBOUND_SET_PANEL_ENABLED") {
+      setPanelEnabled(message.enabled);
+      sendResponse({ enabled: panelEnabled });
+      return false;
+    }
+    return false;
+  });
 
   init();
 })();
