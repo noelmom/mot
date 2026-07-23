@@ -4,7 +4,8 @@ Rebound is a lightweight browser extension that helps Okta administrators clear
 bounced and deferred email addresses off the suppression list — directly inside
 the Okta Admin Console — so affected users can receive email again.
 
-> Rebound was previously released as **MOT v1**. Same functionality, redesigned UI.
+> Rebound was previously released as **MOT v1** and has since evolved with
+> richer event history, audit tooling, and per-tab panel controls.
 
 <a href="https://chromewebstore.google.com/detail/rebound/occkoodcpkleecoccfdacopjokiejlkh"><img src="docs/chrome-web-store-badge.png" alt="Available in the Chrome Web Store" width="280"></a>
 
@@ -22,12 +23,15 @@ v1.3.0
 
 - Search bounced email delivery events
 - Search deferred email delivery events
-- Filter results by address and by state (Bounce / Deferred)
+- Filter mixed event histories by address and state (Bounce / Deferred)
+- Review bounce and deferred event details from compact tooltips
+- Identify addresses removed after their latest delivery event
 - Remove selected addresses from the bounce suppression list
 - Export search results to CSV
 - Per-removal audit CSV (one row per address, with response request IDs)
 - Tenant metadata + custom-domain detection
-- API session validation ("Session valid" indicator)
+- API session validation ("Okta Connected" indicator)
+- Per-tab operations-panel toggle from the extension popup
 - Debug Mode toggle
 
 ## The three views
@@ -58,6 +62,10 @@ https://github.com/noelmom/rebound
 ![Removal confirmation with a downloadable audit trail](docs/Rebound-screenshot-2-restore-delivery-1280x800.png)
 
 ![Feature overview](docs/Rebound-screenshot-3-features-1280x800.png)
+
+![All-clear confirmation](docs/Rebound-screenshot-4-all-clear-1280x800.png)
+
+![Toolbar panel control](docs/Rebound-screenshot-5-toolbar-control-1280x800.png)
 
 ## Support
 
@@ -150,7 +158,7 @@ Includes:
 
 Planned future features:
 
-- Bounce Removal History using `system.email.bounce.removal`
+- Optional auto-refresh with non-intrusive new bounce notifications
 - Removal verification from System Log
 - Rate Limit Inspector
 - User Lookup Helper

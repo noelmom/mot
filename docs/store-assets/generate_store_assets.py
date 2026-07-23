@@ -196,7 +196,24 @@ def generate_marquee():
     save_rgb(canvas, DOCS / "Rebound-marquee-1400x560.png")
 
 
+def generate_store_icon():
+    master = Image.open(LOGO_PATH).convert("RGBA")
+    alpha = master.getchannel("A")
+    artwork_bounds = alpha.getbbox()
+    if not artwork_bounds:
+        raise ValueError("Logo master has no visible artwork")
+    artwork = master.crop(artwork_bounds)
+    artwork.thumbnail((96, 96), Image.Resampling.LANCZOS)
+
+    canvas = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    position = ((128 - artwork.width) // 2, (128 - artwork.height) // 2)
+    canvas.paste(artwork, position, artwork)
+    canvas.save(DOCS / "Rebound-store-icon-128.png", "PNG", optimize=True)
+    canvas.save(ROOT / "assets" / "icon128.png", "PNG", optimize=True)
+
+
 if __name__ == "__main__":
     generate_screenshots()
     generate_small_tile()
     generate_marquee()
+    generate_store_icon()
